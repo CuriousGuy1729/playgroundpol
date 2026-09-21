@@ -39,18 +39,10 @@ The model **never** gets a shell, free filesystem, or a `walk()` primitive. It c
 
 ```bash
 # Python 3.11+, Node 20+
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-cd frontend && npm install && cd ..
-
-export PYTHONPATH="$(pwd)"
-.venv/bin/python -m uvicorn server.app.main:app --host 0.0.0.0 --port 8765 &
-cd frontend && npm run dev
+bash scripts/start.sh
 ```
 
-Or: `bash scripts/start.sh`
-
-Open the Vite URL. The prompt bar is the product — type like you would to a lab partner.
+Open **port 5173**. The prompt bar is the product — type like you would to a lab partner.
 
 ---
 
@@ -62,7 +54,9 @@ Yes. **One port: `5173`.** UI, API, and websocket all live there (Vite is not us
 bash scripts/start.sh
 ```
 
-Then open **5173**. If the page is blank, set that port **Public** in the Ports tab. Ignore any random 4xxxx port — that is not the lab.
+Then open **5173**. If you see **HTTP 502**, the process is not up yet — in the Codespace terminal run `bash scripts/start.sh` and wait until it prints `Uvicorn running on http://0.0.0.0:5173`. Set port 5173 **Public**. Ignore any random 4xxxx port — that is not the lab.
+
+A 502 on `*.app.github.dev` means GitHub’s proxy found nothing on 5173. It is not a UI bug.
 
 ---
 

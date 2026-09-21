@@ -18,4 +18,6 @@ fi
 
 export PYTHONPATH="$ROOT"
 # One process, one port. Vite is not used in preview — it opens stray HMR ports.
-exec .venv/bin/python -m uvicorn server.app.main:app --host 0.0.0.0 --port 5173
+exec .venv/bin/python -m uvicorn server.app.main:app \
+  --host 0.0.0.0 --port 5173 \
+  --proxy-headers --forwarded-allow-ips='*'
