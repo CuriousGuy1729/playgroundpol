@@ -125,6 +125,14 @@ export interface LocalModel {
   downloaded: boolean;
   bytes: number;
   path: string;
+  family?: string;
+  ram?: string;
+}
+
+export interface RuntimeInfo {
+  status: string;
+  log?: string;
+  error?: string;
 }
 
 export interface DownloadInfo {

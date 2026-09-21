@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -188,22 +189,92 @@ PROVIDER_CATALOG: list[dict[str, Any]] = [
 
 LOCAL_MODELS: list[dict[str, Any]] = [
     {
+        "id": "tinyllama-11b-q4",
+        "name": "TinyLlama 1.1B Chat · Q4_K_M",
+        "family": "llama",
+        "filename": "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+        "url": "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+        "size_mb": 669,
+        "context": 2048,
+        "ram": "2 GB",
+        "blurb": "Llama-architecture, laptop-sized. Best first local download.",
+    },
+    {
+        "id": "llama32-1b-q4",
+        "name": "Llama 3.2 1B Instruct · Q4_K_M",
+        "family": "llama",
+        "filename": "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+        "url": "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+        "size_mb": 808,
+        "context": 8192,
+        "ram": "3 GB",
+        "blurb": "Meta Llama 3.2 1B. Free local instruct model.",
+    },
+    {
+        "id": "llama32-3b-q4",
+        "name": "Llama 3.2 3B Instruct · Q4_K_M",
+        "family": "llama",
+        "filename": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+        "url": "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+        "size_mb": 2020,
+        "context": 8192,
+        "ram": "5 GB",
+        "blurb": "Stronger Llama 3.2. Needs ~5 GB RAM.",
+    },
+    {
         "id": "qwen25-05b-q3",
         "name": "Qwen2.5 0.5B Instruct · Q3_K_M",
+        "family": "qwen",
         "filename": "Qwen2.5-0.5B-Instruct-Q3_K_M.gguf",
         "url": "https://huggingface.co/lmstudio-community/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/Qwen2.5-0.5B-Instruct-Q3_K_M.gguf",
         "size_mb": 308,
         "context": 8192,
-        "blurb": "~308 MB. Smallest Qwen that still chats. Stored in the local vault, never uploaded.",
+        "ram": "1 GB",
+        "blurb": "Smallest Qwen that still chats. Fits tight RAM.",
     },
     {
         "id": "qwen25-05b-q4",
         "name": "Qwen2.5 0.5B Instruct · Q4_K_M",
+        "family": "qwen",
         "filename": "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
         "url": "https://huggingface.co/lmstudio-community/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
         "size_mb": 398,
         "context": 8192,
-        "blurb": "~398 MB. Recommended local experiment model.",
+        "ram": "1 GB",
+        "blurb": "Slightly better 0.5B Qwen.",
+    },
+    {
+        "id": "qwen25-15b-q4",
+        "name": "Qwen2.5 1.5B Instruct · Q4_K_M",
+        "family": "qwen",
+        "filename": "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
+        "url": "https://huggingface.co/lmstudio-community/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
+        "size_mb": 986,
+        "context": 8192,
+        "ram": "3 GB",
+        "blurb": "Better tool-following than 0.5B, still local.",
+    },
+    {
+        "id": "phi3-mini-q4",
+        "name": "Phi-3 Mini 4K Instruct · Q4",
+        "family": "phi",
+        "filename": "Phi-3-mini-4k-instruct-q4.gguf",
+        "url": "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf",
+        "size_mb": 2300,
+        "context": 4096,
+        "ram": "6 GB",
+        "blurb": "Microsoft Phi-3 Mini. Punchy for its size.",
+    },
+    {
+        "id": "gemma2-2b-q4",
+        "name": "Gemma 2 2B Instruct · Q4_K_M",
+        "family": "gemma",
+        "filename": "gemma-2-2b-it-Q4_K_M.gguf",
+        "url": "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf",
+        "size_mb": 1700,
+        "context": 8192,
+        "ram": "4 GB",
+        "blurb": "Google Gemma 2 2B, fully local.",
     },
 ]
 
@@ -238,6 +309,7 @@ class LLMHub:
         self.download = DownloadState()
         self._cancel = False
         self._dl_proc = None
+        self.runtime = {"status": "idle", "log": "", "error": ""}
         self._load()
 
     def _load(self) -> None:
@@ -312,6 +384,7 @@ class LLMHub:
             "providers": providers,
             "local_models": local,
             "llama_cpp": llama_cpp_available(),
+            "runtime": dict(self.runtime),
             "vault": str(MODELS_DIR),
             "download": {
                 "model_id": dl.model_id,
@@ -373,7 +446,7 @@ class LLMHub:
         if provider_id == "local-gguf":
             loc = self.local_by_id(model or "") or next((m for m in LOCAL_MODELS if self.gguf_path(m["filename"]).exists()), None)
             if not loc:
-                raise ValueError("Download a local Qwen first")
+                raise ValueError("Download a local GGUF first")
             path = self.gguf_path(loc["filename"])
             if not path.exists():
                 raise ValueError(f"{loc['name']} is not in the vault yet")
@@ -401,7 +474,8 @@ class LLMHub:
             loc = self.local_by_id(self.data.get("active_model") or "")
             if not loc:
                 return BuiltinProvider()
-            return GgufProvider(self.gguf_path(loc["filename"]), loc["id"])
+            ctx = int(loc.get("context") or 2048)
+            return GgufProvider(self.gguf_path(loc["filename"]), loc["id"], n_ctx=min(ctx, 4096))
         spec = self.catalog_by_id(pid)
         st = (self.data.get("providers") or {}).get(pid) or {}
         if not spec:
@@ -420,7 +494,7 @@ class LLMHub:
         if pid == "openrouter":
             extra = {**OPENROUTER_HEADERS, **extra}
             if not model or model in PAID_OPENROUTER_DEFAULTS:
-                model = "openrouter/free"
+                model = DEFAULT_OPENROUTER_MODEL
         return OpenAICompatProvider(
             base_url=base,
             model=model,
@@ -542,9 +616,11 @@ class LLMHub:
     def _download_urls(self, loc: dict[str, Any]) -> list[str]:
         url = loc["url"]
         urls = [url]
+        for extra in loc.get("mirrors") or []:
+            if extra and extra not in urls:
+                urls.append(extra)
         if "huggingface.co" in url:
             urls.append(url.replace("https://huggingface.co", "https://hf-mirror.com"))
-            # huggingface LFS often sits behind this CDN after a redirect
             urls.append(url + "?download=true")
         return urls
 

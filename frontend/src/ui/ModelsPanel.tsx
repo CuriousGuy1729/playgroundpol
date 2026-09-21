@@ -335,14 +335,23 @@ export function ModelsPanel({
         {tab === "local" && (
           <div className="model-list">
             <div className="vault-note">
-              Skip this tab if you have OpenRouter. HuggingFace often refuses TLS from this host, so Qwen GGUF
-              downloads fail — that is expected. Use <b>google/gemma-4-26b-a4b-it:free</b> on the API keys tab.
-              <br />
-              Vault · <span className="mono">{snap?.vault}</span>
+              Free local GGUFs — Llama, TinyLlama, Qwen, Phi, Gemma. No API key. They live in{" "}
+              <span className="mono">{snap?.vault}</span>.
               <br />
               {snap?.llama_cpp
-                ? "llama-cpp-python is available — a downloaded GGUF can run in-process."
-                : "Even after a download, running Qwen needs llama-cpp-python. Prefer OpenRouter."}
+                ? "Runtime ready — llama-cpp-python is installed. Download a GGUF and click Use."
+                : "First click Install local runtime (compiles llama.cpp for CPU, a few minutes, once). Then download a GGUF."}
+              {snap?.runtime?.status === "running" && (
+                <pre className="runtime-log">{snap.runtime.log || "compiling…"}</pre>
+              )}
+              {snap?.runtime?.error && <div className="err">{snap.runtime.error}</div>}
+              {!snap?.llama_cpp && snap?.runtime?.status !== "running" && (
+                <div className="pc-actions" style={{ marginTop: 10 }}>
+                  <button className="primary" disabled={!!busy} onClick={installRuntime}>
+                    Install local runtime (CPU, free)
+                  </button>
+                </div>
+              )}
             </div>
             {(snap?.local_models || []).map((m) => {
               const running = dl?.status === "running" && dl.model_id === m.id;
@@ -352,12 +361,14 @@ export function ModelsPanel({
                 <div key={m.id} className={`provider-card ${isActive ? "active" : ""}`}>
                   <div className="pc-top">
                     <b>{m.name}</b>
+                    {m.family && <span className="tag">{m.family}</span>}
                     {isActive && <span className="tag">active</span>}
                     {m.downloaded && <span className="tag">in vault</span>}
                   </div>
                   <p>{m.blurb}</p>
                   <div className="dl-meta">
                     {m.size_mb} MB · ctx {m.context}
+                    {m.ram ? ` · RAM ${m.ram}` : ""}
                     {m.downloaded ? ` · ${(m.bytes / 1048576).toFixed(0)} MB on disk` : ""}
                   </div>
                   {(running || m.downloaded) && (

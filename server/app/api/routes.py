@@ -174,6 +174,27 @@ async def cancel_download():
     return {"ok": True}
 
 
+@router.post("/api/llm/runtime/install")
+async def install_local_runtime():
+    if hub.runtime.get("status") == "running":
+        raise HTTPException(409, "runtime install already running")
+
+    def progress(info: dict) -> None:
+        lab.emit({"type": "hub", **info} if "providers" in info else {"type": "runtime", **(info.get("runtime") or info)})
+        lab.emit({"type": "hub", **hub.snapshot()})
+
+    async def _run() -> None:
+        try:
+            snap = await hub.install_runtime(on_progress=progress)
+            lab.emit({"type": "hub", **snap})
+        except Exception as e:
+            lab.emit({"type": "hub", **hub.snapshot()})
+            lab.emit({"type": "runtime", "status": "error", "error": str(e)})
+
+    asyncio.create_task(_run())
+    return {"ok": True, "runtime": hub.runtime}
+
+
 @router.delete("/api/llm/local/{model_id}")
 async def delete_local(model_id: str):
     loc = hub.local_by_id(model_id)

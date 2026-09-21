@@ -693,6 +693,18 @@ button.chip {
 }
 .free-meta { display: flex; gap: 6px; color: var(--faint); }
 .free-meta i { font-style: normal; font-size: 10px; }
+.runtime-log {
+  margin: 8px 0 0;
+  max-height: 140px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  background: rgba(0,0,0,0.28);
+  border-radius: 8px;
+  padding: 8px;
+  white-space: pre-wrap;
+}
 
 .research-modal { width: min(860px, 100%); }
 .usecase-grid {
