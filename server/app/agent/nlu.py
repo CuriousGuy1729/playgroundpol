@@ -35,6 +35,7 @@ class Intent:
             "target": self.target,
             "asset": self.asset,
             "constraints": self.constraints,
+            "extras": self.extras,
         }
 
 
@@ -47,6 +48,10 @@ def parse_intent(text: str, context: dict | None = None) -> Intent:
         if re.search(pat, low):
             kind = "question" if verb == "explain" else "meta"
             return Intent(kind=kind, verb=verb, raw=raw)
+
+    campaign = _campaign_intent(raw, low)
+    if campaign:
+        return campaign
 
     constraints: list[str] = []
     if re.search(r"without changing the robot|don't change the robot|do not change the robot|keep the robot", low):
@@ -71,8 +76,21 @@ def parse_intent(text: str, context: dict | None = None) -> Intent:
 
     asset = None
     for pat, name in (
+        (r"\br2d2\b", "r2d2"),
+        (r"\bhusky\b", "husky"),
+        (r"\bracecar\b|\brace car\b", "racecar"),
+        (r"\blaikago\b", "laikago"),
+        (r"\ba1\b|unitree", "a1"),
+        (r"\bmini[- ]?cheetah\b", "mini_cheetah"),
+        (r"\bminitaur\b", "minitaur"),
+        (r"\bhumanoid\b", "humanoid"),
+        (r"\bkuka\b|\biiwa\b", "kuka"),
+        (r"\bpanda\b|\bfranka\b", "panda"),
+        (r"\bxarm\b", "xarm"),
+        (r"\bcartpole\b|\bcart-pole\b|\bcart pole\b", "cartpole"),
+        (r"\bquadruped\b", "quadruped"),
         (r"\bhauler\b|\bwheeled\b|\bvehicle\b|\bcar\b", "hauler"),
-        (r"\bbiped\b|\bhumanoid\b|\bkiosk\b", "kiosk"),
+        (r"\bbiped\b|\bkiosk\b", "kiosk"),
         (r"\barm\b|\breach\b|\bmanipulator\b", "reach"),
         (r"\bquad|\bpulse\b|\blegged robot\b", "pulse"),
         (r"\bramp\b", "ramp"),
@@ -89,8 +107,12 @@ def parse_intent(text: str, context: dict | None = None) -> Intent:
     if re.search(r"\b(add|create|spawn|insert|place|build|put)\b", low):
         return Intent("task", "add", raw, target=target, asset=asset or target, constraints=constraints)
 
-    if re.search(r"\b(load|swap|replace|use|switch to)\b.+\b(robot|hauler|pulse|kiosk|arm|biped)\b", low) or re.search(
-        r"\b(use|try|load) (a |the )?(wheeled|hauler|biped|arm)", low
+    if re.search(
+        r"\b(load|swap|replace|use|switch to)\b.+\b(robot|hauler|pulse|kiosk|arm|biped|r2d2|husky|laikago|kuka|panda|cartpole|humanoid)\b",
+        low,
+    ) or re.search(
+        r"\b(use|try|load) (a |the )?(wheeled|hauler|biped|arm|r2d2|husky|laikago|kuka|panda)",
+        low,
     ):
         return Intent("task", "load", raw, asset=asset or "hauler", constraints=constraints)
 
@@ -135,3 +157,69 @@ def parse_intent(text: str, context: dict | None = None) -> Intent:
             return Intent("task", "walk", raw, target=target or ctx.get("last_target"), constraints=constraints)
 
     return Intent("task", "walk", raw, target=target, asset=asset, constraints=constraints)
+
+
+def _parse_count(low: str) -> int | None:
+    if re.search(r"\b(1\s*)?million\b|1,?000,?000|\b1m\b", low):
+        return 1_000_000
+    if re.search(r"\b100,?000\b|\b100k\b", low):
+        return 100_000
+    if re.search(r"\b10,?000\b|\b10k\b", low):
+        return 10_000
+    if re.search(r"\b1,?000\b|\b1000\b|\b1k\b|a thousand", low):
+        return 1000
+    if re.search(r"\b100\b|a hundred", low):
+        return 100
+    m = re.search(r"(\d[\d,_]*)\s*(trials?|experiments?|runs?|sims?)", low)
+    if m:
+        return int(m.group(1).replace(",", "").replace("_", ""))
+    return None
+
+
+def _campaign_intent(raw: str, low: str) -> Intent | None:
+    n = _parse_count(low)
+    flagged = bool(re.search(r"\b(campaign|dataset|distill|batch)\b", low))
+    bulk = bool(n and re.search(r"\b(trials?|experiments?|sims?)\b", low))
+    if not flagged and not bulk:
+        return None
+    usecase = "gait_search"
+    if re.search(r"cartpole|cart-pole|balance pole", low):
+        usecase = "cartpole"
+    elif re.search(r"domain|randomiz", low):
+        usecase = "domain_rand"
+    elif re.search(r"impulse|robust", low):
+        usecase = "robustness"
+    elif re.search(r"kuka|panda|xarm|arm reach|manipulat", low):
+        usecase = "arm_reach"
+    elif re.search(r"husky|racecar|r2d2|wheeled|nav", low):
+        usecase = "wheeled_nav"
+    elif re.search(r"gait", low):
+        usecase = "gait_search"
+    asset = None
+    for pat, name in (
+        (r"\br2d2\b", "r2d2"),
+        (r"\bhusky\b", "husky"),
+        (r"\bracecar\b", "racecar"),
+        (r"\blaikago\b", "laikago"),
+        (r"\ba1\b", "a1"),
+        (r"\bmini[- ]?cheetah\b", "mini_cheetah"),
+        (r"\bminitaur\b", "minitaur"),
+        (r"\bhumanoid\b", "humanoid"),
+        (r"\bkuka\b", "kuka"),
+        (r"\bpanda\b|\bfranka\b", "panda"),
+        (r"\bxarm\b", "xarm"),
+        (r"\bcartpole\b", "cartpole"),
+        (r"\bhauler\b", "hauler"),
+        (r"\bpulse\b", "pulse"),
+        (r"\bkiosk\b", "kiosk"),
+        (r"\breach\b", "reach"),
+    ):
+        if re.search(pat, low):
+            asset = name
+            break
+    extras = {"n": n or 1000, "usecase": usecase}
+    if asset:
+        extras["asset"] = asset
+    if re.search(r"\b2 (sims?|workers?|clients?)\b|\btwo sims\b", low):
+        extras["workers"] = 2
+    return Intent("task", "campaign", raw, asset=asset, extras=extras)

@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from ..lab import lab
 from ..llm.hub import hub
+from ..research.campaign import list_datasets, load_dataset, usecases_public
 
 router = APIRouter()
 
@@ -174,6 +175,74 @@ async def delete_local(model_id: str):
         hub.activate("builtin")
         await lab.agent.set_provider(hub.make_provider())
     return hub.snapshot()
+
+
+class CampaignIn(BaseModel):
+    usecase: str = "gait_search"
+    n: int | str = 1000
+    asset: str | None = None
+    workers: int = 1
+    seed: int = 7
+    horizon: float | None = None
+    wallclock: float | None = None
+    distill_top: float = 0.1
+    axes: list[str] | None = None
+    resume_from: int = 0
+    id: str | None = None
+
+
+@router.get("/api/research/usecases")
+async def research_usecases():
+    return usecases_public()
+
+
+@router.get("/api/campaigns")
+async def campaigns():
+    return {"status": lab.campaign.snapshot(), "datasets": list_datasets()}
+
+
+@router.get("/api/campaigns/status")
+async def campaign_status():
+    return lab.campaign.snapshot()
+
+
+@router.get("/api/campaigns/{cid}")
+async def campaign_one(cid: str):
+    try:
+        return load_dataset(cid)
+    except FileNotFoundError:
+        raise HTTPException(404, "dataset not found")
+
+
+@router.post("/api/campaigns")
+async def start_campaign(body: CampaignIn):
+    spec = body.model_dump(exclude_none=True)
+    try:
+        return lab.campaign.start(spec)
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(409 if "already" in str(e) else 400, str(e))
+
+
+@router.post("/api/campaigns/cancel")
+async def cancel_campaign():
+    return lab.campaign.cancel()
+
+
+@router.get("/api/campaigns/{cid}/download")
+async def download_campaign(cid: str):
+    import zipfile
+    from ..config import DATASETS_DIR
+
+    folder = DATASETS_DIR / cid
+    if not folder.exists():
+        raise HTTPException(404, "dataset not found")
+    zpath = folder / f"{cid}.zip"
+    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as zf:
+        for p in folder.iterdir():
+            if p.suffix == ".zip":
+                continue
+            zf.write(p, p.name)
+    return FileResponse(zpath, filename=f"{cid}.zip")
 
 
 @router.websocket("/ws")

@@ -145,3 +145,46 @@ export interface HubSnapshot {
   vault: string;
   download: DownloadInfo;
 }
+
+export interface Usecase {
+  id: string;
+  title: string;
+  blurb: string;
+  default_n: number;
+  default_asset: string;
+  assets: string[];
+  horizon: number;
+  objective: string;
+  axes: string[];
+  why_n: string;
+}
+
+export interface CampaignStatus {
+  status: string;
+  id?: string;
+  usecase?: string;
+  asset?: string;
+  n?: number;
+  thisRun?: number;
+  done?: number;
+  successes?: number;
+  rate?: number;
+  eta?: number | null;
+  dir?: string;
+  elapsed?: number;
+  remaining?: number;
+  distilled?: number;
+  note?: string;
+  error?: string;
+  last?: { trial: number; success: boolean; reward: number; reason: string };
+}
+
+export interface DatasetInfo {
+  id: string;
+  usecase: string;
+  asset: string;
+  done?: number;
+  successes?: number;
+  status?: string;
+  dir?: string;
+}

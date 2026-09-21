@@ -11,6 +11,7 @@ from .agent.agent import Agent
 from .assets.library import AssetLibrary
 from .config import SIM_DT, STREAM_HZ
 from .projects.manager import ProjectManager
+from .research.campaign import runner as campaign_runner
 from .sim.world import World
 
 
@@ -22,6 +23,8 @@ class Lab:
         self.clients: set[WebSocket] = set()
         self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self.agent = Agent(self.world, self.assets, self.project, self.emit)
+        self.campaign = campaign_runner
+        self.campaign.bind(self.emit)
         self._pump: asyncio.Task | None = None
         self._play: asyncio.Task | None = None
         self.started = False
@@ -153,6 +156,7 @@ class Lab:
         elif cmd == "stop_agent":
             self.agent.interrupt("stop")
             self.world.hold_pose()
+            self.campaign.cancel()
             self.emit({"type": "status", "agent": "idle"})
         elif cmd == "undo":
             self.world.undo()

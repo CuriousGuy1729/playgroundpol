@@ -1,8 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LabSocket } from "../net/ws";
 import { ViewportEngine } from "../viewport/engine";
-import type { Asset, Attempt, BodyDesc, ChatMsg, DownloadInfo, HubSnapshot, Lesson, LlmInfo } from "../types";
+import type {
+  Asset,
+  Attempt,
+  BodyDesc,
+  CampaignStatus,
+  ChatMsg,
+  DownloadInfo,
+  HubSnapshot,
+  Lesson,
+  LlmInfo,
+} from "../types";
 import { ModelsPanel } from "./ModelsPanel";
+import { ResearchPanel } from "./ResearchPanel";
 
 const HINTS = [
   "Make this robot walk to the red cube.",
@@ -10,6 +21,8 @@ const HINTS = [
   "Try solving it without changing the robot.",
   "Now make it climb the stairs.",
   "Why did it fall?",
+  "Load the Husky robot.",
+  "Run 100 gait-search experiments and distill a dataset.",
 ];
 
 let msgSeq = 1;
@@ -45,8 +58,10 @@ export function App() {
   const [tool, setTool] = useState<string | null>(null);
   const [hint, setHint] = useState(0);
   const [modelsOpen, setModelsOpen] = useState(false);
+  const [researchOpen, setResearchOpen] = useState(false);
   const [hub, setHub] = useState<HubSnapshot | null>(null);
   const [download, setDownload] = useState<DownloadInfo | null>(null);
+  const [campaign, setCampaign] = useState<CampaignStatus | null>(null);
 
   const busy = agent === "experimenting" || agent === "thinking";
 
@@ -158,6 +173,7 @@ export function App() {
       if (t === "education") setLesson(msg.lesson as Lesson);
       if (t === "tool_call") setTool(String(msg.tool));
       if (t === "tool_result") setTool(null);
+      if (t === "campaign") setCampaign(msg as unknown as CampaignStatus);
     });
     ws.connect();
 
@@ -276,6 +292,15 @@ export function App() {
           {busy ? agent : "idle"}
         </div>
         <button
+          className={`chip model-chip ${campaign?.status === "running" ? "busy" : ""}`}
+          title="Research campaigns"
+          onClick={() => setResearchOpen(true)}
+        >
+          {campaign?.status === "running"
+            ? `campaign · ${campaign.done || 0}/${campaign.thisRun || 0}`
+            : "research"}
+        </button>
+        <button
           className="chip model-chip"
           title={llm?.note || "Choose a model"}
           onClick={() => setModelsOpen(true)}
@@ -362,7 +387,8 @@ export function App() {
                     </div>
                     <div className="adesc">{a.description}</div>
                     <div className="atags">
-                      {a.tags.slice(0, 3).map((t) => (
+                      {a.origin === "pybullet" && <span className="tag">pybullet</span>}
+                      {a.tags.filter((t) => t !== "pybullet").slice(0, 3).map((t) => (
                         <span className="tag" key={t}>
                           {t}
                         </span>
@@ -505,6 +531,15 @@ export function App() {
           )}
         </aside>
       </div>
+
+      <ModelsPanel
+        open={modelsOpen}
+        onClose={() => setModelsOpen(false)}
+        hub={hub}
+        download={download}
+        onRefresh={setHub}
+      />
+      <ResearchPanel open={researchOpen} onClose={() => setResearchOpen(false)} campaign={campaign} />
     </div>
   );
 }

@@ -19,6 +19,7 @@ from .controllers import (
     JointOsc,
     OscillatorBank,
     PDHold,
+    WheelBank,
     controller_to_dict,
 )
 from .mathutil import as3, clamp, forward_xy, length, up_z, xy_distance, yaw_of
@@ -87,6 +88,12 @@ class World:
                 physicsClientId=self.client,
             )
             p.setRealTimeSimulation(0, physicsClientId=self.client)
+            try:
+                import pybullet_data
+
+                p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=self.client)
+            except Exception:
+                pass
             self.bodies.clear()
             self.rest_poses.clear()
             self.controllers.clear()
@@ -179,6 +186,19 @@ class World:
 
     def hard_reset(self) -> None:
         self.load_default_arena()
+
+    def disconnect(self) -> None:
+        with self._lock:
+            if not self._connected:
+                return
+            try:
+                p.disconnect(physicsClientId=self.client)
+            except Exception:
+                pass
+            self._connected = False
+            self.client = -1
+            self.bodies.clear()
+            self.controllers.clear()
 
     # ---------------------------------------------------------------- snapshots
     def _snapshot(self) -> WorldSnapshot:
@@ -516,19 +536,42 @@ class World:
                     force=float(spec.get("force", 18.0)),
                 )
             elif kind in ("diff_drive", "wheels", "diff"):
-                left = spec.get("left", "wheel_l")
-                right = spec.get("right", "wheel_r")
-                li = left if isinstance(left, int) else (rec.joint_by_name(str(left)).index if rec.joint_by_name(str(left)) else 0)
-                ri = right if isinstance(right, int) else (rec.joint_by_name(str(right)).index if rec.joint_by_name(str(right)) else 1)
-                ctrl = DiffDrive(
-                    left=int(li),
-                    right=int(ri),
-                    linear=float(spec.get("linear", 0.4)),
-                    angular=float(spec.get("angular", 0.0)),
-                    force=float(spec.get("force", 10.0)),
-                    wheel_radius=float(spec.get("wheel_radius", 0.055)),
-                    track=float(spec.get("track", 0.29)),
-                )
+                left = spec.get("left")
+                right = spec.get("right")
+                guessed_l, guessed_r = _guess_wheel_indices(rec)
+                if left is None:
+                    left = guessed_l
+                if right is None:
+                    right = guessed_r
+                multi = kind == "wheels" or isinstance(left, (list, tuple)) or isinstance(right, (list, tuple))
+                if not multi and isinstance(left, str):
+                    j = rec.joint_by_name(str(left))
+                    left = j.index if j else (guessed_l[0] if guessed_l else 0)
+                if not multi and isinstance(right, str):
+                    j = rec.joint_by_name(str(right))
+                    right = j.index if j else (guessed_r[0] if guessed_r else 1)
+                if multi:
+                    left_ids = [int(x) for x in (left if isinstance(left, (list, tuple)) else [left])]
+                    right_ids = [int(x) for x in (right if isinstance(right, (list, tuple)) else [right])]
+                    ctrl = WheelBank(
+                        left=left_ids,
+                        right=right_ids,
+                        linear=float(spec.get("linear", 0.4)),
+                        angular=float(spec.get("angular", 0.0)),
+                        force=float(spec.get("force", 20.0)),
+                        wheel_radius=float(spec.get("wheel_radius", 0.165)),
+                        track=float(spec.get("track", 0.55)),
+                    )
+                else:
+                    ctrl = DiffDrive(
+                        left=int(left),
+                        right=int(right),
+                        linear=float(spec.get("linear", 0.4)),
+                        angular=float(spec.get("angular", 0.0)),
+                        force=float(spec.get("force", 10.0)),
+                        wheel_radius=float(spec.get("wheel_radius", 0.055)),
+                        track=float(spec.get("track", 0.29)),
+                    )
             elif kind == "force":
                 vec = spec.get("vec") or spec.get("force") or [0, 0, 0]
                 ctrl = ConstantForce(vec=(float(vec[0]), float(vec[1]), float(vec[2])))
@@ -640,8 +683,36 @@ class World:
                 return self.bodies[self.target_id]
         return None
 
-    def load_urdf(self, path: str, pos: list[float], name: str = "URDF") -> BodyRec:
-        bid = p.loadURDF(path, pos, physicsClientId=self.client)
+    def load_urdf(
+        self,
+        path: str,
+        pos: list[float],
+        name: str = "URDF",
+        *,
+        asset_id: str = "urdf",
+        tags: list[str] | None = None,
+        capabilities: list[str] | None = None,
+        color: str = "#8b93a7",
+        category: str | None = None,
+        fixed_base: bool = False,
+        created_by: str = "agent",
+        global_scaling: float = 1.0,
+    ) -> BodyRec:
+        flags = 0
+        try:
+            flags = int(p.URDF_USE_INERTIA_FROM_FILE)
+        except Exception:
+            flags = 0
+        bid = p.loadURDF(
+            path,
+            pos,
+            useFixedBase=bool(fixed_base),
+            flags=flags,
+            globalScaling=float(global_scaling),
+            physicsClientId=self.client,
+        )
+        if not fixed_base:
+            self._seat_on_floor(bid, pos)
         n = p.getNumJoints(bid, physicsClientId=self.client)
         joints: list[JointRec] = []
         for i in range(n):
@@ -649,53 +720,94 @@ class World:
             jtype = {p.JOINT_REVOLUTE: "revolute", p.JOINT_PRISMATIC: "prismatic", p.JOINT_FIXED: "fixed"}.get(info[2], "revolute")
             if jtype == "fixed":
                 continue
+            jname = info[1].decode() if isinstance(info[1], bytes) else str(info[1])
             joints.append(
                 JointRec(
                     index=i,
-                    name=info[1].decode() if isinstance(info[1], bytes) else str(info[1]),
+                    name=jname,
                     type=jtype,
                     axis=list(info[13]),
-                    parent=-1,
+                    parent=int(info[16]) if len(info) > 16 else -1,
                     child=i,
+                    lower=float(info[8]),
+                    upper=float(info[9]),
                 )
             )
             p.setJointMotorControl2(bid, i, p.VELOCITY_CONTROL, force=0, physicsClientId=self.client)
         vis = p.getVisualShapeData(bid, physicsClientId=self.client)
         links_map: dict[int, list[Geom]] = {}
+        mesh_links: set[int] = set()
         for v in vis:
             link_idx = int(v[1])
             gtype_i = int(v[2])
             dims = list(v[3])
-            color = list(v[7]) if len(v) > 7 else [0.6, 0.6, 0.65, 1]
+            color_v = list(v[7]) if len(v) > 7 else [0.6, 0.6, 0.65, 1]
             lpos = list(v[5]) if len(v) > 5 else [0, 0, 0]
             lorn = list(v[6]) if len(v) > 6 else [0, 0, 0, 1]
             if gtype_i == p.GEOM_SPHERE:
-                geom = Geom("sphere", [dims[0]], color, lpos, lorn)
+                geom = Geom("sphere", [max(dims[0], 0.01)], color_v, lpos, lorn)
             elif gtype_i == p.GEOM_CYLINDER:
-                geom = Geom("cylinder", [dims[1], dims[0]], color, lpos, lorn)
+                geom = Geom("cylinder", [max(dims[1], 0.01), max(dims[0], 0.01)], color_v, lpos, lorn)
             elif gtype_i == p.GEOM_CAPSULE:
-                geom = Geom("capsule", [dims[1], dims[0]], color, lpos, lorn)
+                geom = Geom("capsule", [max(dims[1], 0.01), max(dims[0], 0.01)], color_v, lpos, lorn)
+            elif gtype_i == p.GEOM_MESH:
+                mesh_links.add(link_idx)
+                geom = Geom("box", [0.04, 0.04, 0.04], color_v, lpos, lorn, role="mesh")
             else:
-                # getVisualShapeData returns full extents for boxes
-                geom = Geom("box", [max(d / 2, 0.005) for d in dims[:3]], color, lpos, lorn)
+                geom = Geom("box", [max(d / 2, 0.005) for d in dims[:3]], color_v, lpos, lorn)
             links_map.setdefault(link_idx, []).append(geom)
+        for link_idx in mesh_links:
+            try:
+                aabb_min, aabb_max = p.getAABB(bid, linkIndex=link_idx, physicsClientId=self.client)
+                hx = min(max((aabb_max[0] - aabb_min[0]) / 2, 0.02), 0.55)
+                hy = min(max((aabb_max[1] - aabb_min[1]) / 2, 0.02), 0.55)
+                hz = min(max((aabb_max[2] - aabb_min[2]) / 2, 0.02), 0.55)
+            except Exception:
+                hx, hy, hz = 0.05, 0.05, 0.05
+            for g in links_map.get(link_idx, []):
+                if g.role == "mesh":
+                    g.size = [hx, hy, hz]
+                    g.role = "body"
         links = [LinkRec(index=i, name="base" if i < 0 else f"link_{i}", geoms=g) for i, g in sorted(links_map.items())]
+        if category is None:
+            category = "robots" if n else "objects"
         rec = BodyRec(
             id=bid,
             name=name,
-            category="robots" if n else "objects",
-            tags=["urdf"],
-            capabilities=["urdf"],
-            color="#8b93a7",
+            category=category,
+            tags=list(tags or ["urdf"]),
+            capabilities=list(capabilities or ["urdf"]),
+            color=color,
             links=links or [LinkRec(-1, "base", [Geom("box", [0.05, 0.05, 0.05], [0.5, 0.5, 0.5, 1])])],
             joints=joints,
             mass=1.0,
-            spawned_at=list(pos),
-            asset_id="urdf",
-            created_by="agent",
+            spawned_at=list(self.get_pose(bid)[0]),
+            asset_id=asset_id,
+            created_by=created_by,
         )
         self.register(rec)
         return rec
+
+    def _seat_on_floor(self, bid: int, xy: list[float]) -> None:
+        try:
+            aabb_min, aabb_max = p.getAABB(bid, physicsClientId=self.client)
+        except Exception:
+            return
+        span = float(aabb_max[2] - aabb_min[2])
+        if span < 0.03:
+            # Degenerate AABB (collision on child links) — keep the requested spawn height.
+            return
+        pos, orn = p.getBasePositionAndOrientation(bid, physicsClientId=self.client)
+        lift = 0.015 - float(aabb_min[2])
+        if abs(lift) < 1e-4:
+            return
+        z = pos[2] + lift
+        if z < 0.0:
+            z = 0.02
+        p.resetBasePositionAndOrientation(
+            bid, [float(xy[0]), float(xy[1]), float(z)], orn, physicsClientId=self.client
+        )
+        p.resetBaseVelocity(bid, [0, 0, 0], [0, 0, 0], physicsClientId=self.client)
 
     def begin_traj(self) -> None:
         self._traj = []
@@ -714,6 +826,33 @@ class World:
         for c in p.getContactPoints(physicsClientId=self.client)[:40]:
             pts.append({"p": list(c[5]), "n": list(c[7]), "f": c[9]})
         return pts
+
+
+def _guess_wheel_indices(rec: BodyRec) -> tuple[list[int], list[int]]:
+    left: list[int] = []
+    right: list[int] = []
+    for j in rec.joints:
+        n = j.name.lower()
+        if "wheel" not in n and n not in ("wheel_l", "wheel_r"):
+            continue
+        if "left" in n or n.endswith("_l") or "_l_" in n or n.endswith("wheel_l"):
+            left.append(j.index)
+        elif "right" in n or n.endswith("_r") or "_r_" in n or n.endswith("wheel_r"):
+            right.append(j.index)
+    if not left and not right:
+        for j in rec.joints:
+            n = j.name.lower()
+            if n in ("wheel_l", "left"):
+                left.append(j.index)
+            elif n in ("wheel_r", "right"):
+                right.append(j.index)
+    if not left or not right:
+        revs = [j.index for j in rec.joints if j.type == "revolute"]
+        if len(revs) >= 2 and not left:
+            left = [revs[0]]
+        if len(revs) >= 2 and not right:
+            right = [revs[1]]
+    return left, right
 
 
 def reason_from(fallen: bool, dist: float | None, traveled: float) -> str:

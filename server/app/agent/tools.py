@@ -54,6 +54,16 @@ class Toolbelt:
         pos = position or [0.0, 0.0, 0.0]
         world = self.world
         with world._lock:
+            catalog = self.assets.get(asset_id) if self.assets else None
+            is_robot = asset_id in ("pulse", "kiosk", "hauler", "reach") or (
+                catalog is not None and catalog.category == "robots"
+            )
+            if as_actor and is_robot and world.actor_id and world.actor_id in world.bodies:
+                old = world.actor_id
+                old_pos, _ = world.get_pose(old)
+                if position is None:
+                    pos = [old_pos[0], old_pos[1], pos[2] if pos else 0.0]
+                world.remove(old)
             if asset_id in ("pulse", "kiosk", "hauler", "reach"):
                 fn = {
                     "pulse": robots.spawn_pulse,
@@ -61,11 +71,6 @@ class Toolbelt:
                     "hauler": robots.spawn_hauler,
                     "reach": robots.spawn_arm,
                 }[asset_id]
-                if as_actor and world.actor_id and world.actor_id in world.bodies:
-                    old = world.actor_id
-                    old_pos, _ = world.get_pose(old)
-                    pos = pos or [old_pos[0], old_pos[1], 0]
-                    world.remove(old)
                 bid, rec, rest = fn(world.client, pos)
                 rec.created_by = created_by
                 world.register(rec, rest)
@@ -73,6 +78,27 @@ class Toolbelt:
                     world.actor_id = bid
                     world.hold_pose(bid)
                     world._settle(80)
+                    world.mark_checkpoint()
+                return rec.to_dict()
+            if catalog and catalog.file_path:
+                spawn = list(pos)
+                if (position is None or len(position) < 3 or abs(float(position[2])) < 1e-6) and catalog.spawn_z:
+                    spawn[2] = float(catalog.spawn_z)
+                rec = world.load_urdf(
+                    catalog.file_path,
+                    spawn,
+                    name=catalog.name,
+                    asset_id=catalog.id,
+                    tags=catalog.tags,
+                    capabilities=catalog.capabilities,
+                    color=catalog.color,
+                    category=catalog.category,
+                    fixed_base=catalog.fixed_base,
+                    created_by=created_by,
+                )
+                if as_actor and catalog.category == "robots":
+                    world.actor_id = rec.id
+                    world._settle(60)
                     world.mark_checkpoint()
                 return rec.to_dict()
             if asset_id in ("ramp",):
@@ -198,7 +224,7 @@ class Toolbelt:
     def modify_controller(self, body_id: int, **spec: Any) -> dict[str, Any]:
         return self.world.set_controller(int(body_id), spec)
 
-    def run_simulation(self, seconds: float | None = None, steps: int | None = None) -> dict[str, Any]:
+    def run_simulation(self, seconds: float | None = None, steps: int | None = None, realtime: bool = True) -> dict[str, Any]:
         if steps is None:
             seconds = min(float(seconds or 2.0), MAX_EXPERIMENT_SECONDS)
             steps = int(seconds / SIM_DT)
@@ -213,13 +239,14 @@ class Toolbelt:
             if self._cancel:
                 break
             n = min(batch, steps - done)
-            self.world.step(n, record=True, on_frame=self.on_frame)
+            self.world.step(n, record=realtime, on_frame=self.on_frame if realtime else None)
             done += n
-            # Keep the viewport watchable (~4× realtime) without blocking the UI thread.
-            target = done * SIM_DT / play_speed
-            extra = target - (time.perf_counter() - t0)
-            if extra > 0:
-                time.sleep(min(extra, 0.08))
+            if realtime:
+                # Keep the viewport watchable (~4× realtime) without blocking the UI thread.
+                target = done * SIM_DT / play_speed
+                extra = target - (time.perf_counter() - t0)
+                if extra > 0:
+                    time.sleep(min(extra, 0.08))
         traj = self.world.end_traj()
         obs = self.world.observe()
         return {"steps": done, "time": self.world.time, "frames": len(traj), "observation": obs, "cancelled": self._cancel}

@@ -659,3 +659,58 @@ button.chip {
   font-size: 12px;
   color: var(--accent);
 }
+
+.research-modal { width: min(860px, 100%); }
+.usecase-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.why-n { font-size: 12px; color: var(--muted); margin: 10px 0 0; line-height: 1.45; }
+.field select {
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: rgba(0,0,0,0.28);
+  padding: 0 8px;
+  font-size: 12px;
+  font-family: var(--mono);
+  outline: none;
+  color: var(--text);
+}
+.n-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.n-chip {
+  flex: 1;
+  min-width: 72px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,0.02);
+  border-radius: 12px;
+  padding: 8px 6px 10px;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--mono);
+  font-size: 14px;
+}
+.n-chip i { font-style: normal; font-size: 10px; color: var(--faint); font-family: var(--font); }
+.n-chip.on {
+  border-color: rgba(62, 224, 197, 0.45);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.campaign-progress { margin-top: 14px; }
+.dataset-list { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.dataset-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.02);
+  font-size: 13px;
+}
+.dataset-row a { text-decoration: none; height: 28px; padding: 6px 10px; border-radius: 8px; }

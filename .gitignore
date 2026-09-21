@@ -17,5 +17,6 @@ data/projects/*
 *.gguf
 data/secrets.json
 data/models/
+data/datasets/
 .idea/
 .vscode/

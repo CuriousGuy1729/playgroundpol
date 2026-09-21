@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Callable
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -17,6 +17,9 @@ class Asset:
     collision: str = "primitive"
     file_path: str = ""
     color: str = "#8b93a7"
+    origin: str = "prism"
+    fixed_base: bool = False
+    spawn_z: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -31,7 +34,40 @@ class Asset:
             "collision": self.collision,
             "filePath": self.file_path,
             "color": self.color,
+            "origin": self.origin,
+            "fixedBase": self.fixed_base,
+            "spawnZ": self.spawn_z,
         }
+
+
+def _pb(
+    id: str,
+    name: str,
+    category: str,
+    tags: list[str],
+    capabilities: list[str],
+    description: str,
+    file_path: str,
+    joints: int = 0,
+    color: str = "#8b93a7",
+    fixed_base: bool = False,
+    spawn_z: float = 0.0,
+) -> Asset:
+    return Asset(
+        id,
+        name,
+        category,
+        tags + ["pybullet"],
+        capabilities,
+        description,
+        joints=joints,
+        file_path=file_path,
+        color=color,
+        origin="pybullet",
+        fixed_base=fixed_base,
+        collision="mesh",
+        spawn_z=spawn_z,
+    )
 
 
 CATALOG: list[Asset] = [
@@ -148,6 +184,26 @@ CATALOG: list[Asset] = [
         "Vertical obstacle pole.",
         color="#3ee0c5",
     ),
+    # PyBullet built-in URDFs (pybullet_data)
+    _pb("r2d2", "R2D2", "robots", ["wheeled", "r2d2"], ["locomotion_wheels"], "PyBullet built-in R2D2.", "r2d2.urdf", 2, "#cfd6e4", spawn_z=0.4),
+    _pb("husky", "Husky", "robots", ["wheeled", "vehicle"], ["locomotion_wheels"], "Clearpath Husky (PyBullet).", "husky/husky.urdf", 4, "#f0a05a", spawn_z=0.15),
+    _pb("racecar", "Racecar", "robots", ["wheeled", "vehicle"], ["locomotion_wheels"], "PyBullet racecar.", "racecar/racecar.urdf", 4, "#e23d42", spawn_z=0.05),
+    _pb("laikago", "Laikago", "robots", ["quadruped", "legged"], ["locomotion_legs"], "Unitree Laikago (PyBullet).", "laikago/laikago.urdf", 12, "#3ee0c5", spawn_z=0.48),
+    _pb("a1", "Unitree A1", "robots", ["quadruped", "legged"], ["locomotion_legs"], "Unitree A1 (PyBullet).", "a1/a1.urdf", 12, "#7a6cff", spawn_z=0.42),
+    _pb("mini_cheetah", "Mini Cheetah", "robots", ["quadruped", "legged"], ["locomotion_legs"], "MIT Mini Cheetah (PyBullet).", "mini_cheetah/mini_cheetah.urdf", 12, "#8b93a7", spawn_z=0.28),
+    _pb("quadruped", "Quadruped", "robots", ["quadruped", "legged"], ["locomotion_legs"], "PyBullet generic quadruped.", "quadruped/quadruped.urdf", 8, "#3ee0c5", spawn_z=0.32),
+    _pb("minitaur", "Minitaur", "robots", ["quadruped", "legged"], ["locomotion_legs"], "Ghost Minitaur (PyBullet).", "quadruped/minitaur.urdf", 8, "#f0a05a", spawn_z=0.2),
+    _pb("humanoid", "Humanoid", "robots", ["biped", "humanoid"], ["locomotion_legs"], "PyBullet humanoid.", "humanoid/humanoid.urdf", 15, "#7a6cff", spawn_z=1.05),
+    _pb("kuka", "KUKA iiwa", "robots", ["arm", "manipulator"], ["manipulation"], "KUKA LBR iiwa (PyBullet).", "kuka_iiwa/model.urdf", 7, "#c4a574", True, 0.0),
+    _pb("panda", "Franka Panda", "robots", ["arm", "manipulator"], ["manipulation"], "Franka Emika Panda (PyBullet).", "franka_panda/panda.urdf", 7, "#e23d42", True, 0.0),
+    _pb("xarm", "xArm 6", "robots", ["arm", "manipulator"], ["manipulation"], "UFactory xArm6 (PyBullet).", "xarm/xarm6_robot.urdf", 6, "#3ee0c5", True, 0.0),
+    _pb("cartpole", "Cartpole", "robots", ["classic", "balance"], ["balance"], "Classic cart-pole (PyBullet).", "cartpole.urdf", 1, "#f0a05a", spawn_z=0.0),
+    _pb("duck", "Duck", "objects", ["mesh", "manipulable"], ["manipulable"], "VHACD duck mesh (PyBullet).", "duck_vhacd.urdf", 0, "#f0a05a", spawn_z=0.12),
+    _pb("soccerball", "Soccer ball", "objects", ["sphere", "ball"], ["manipulable"], "Soccer ball URDF (PyBullet).", "soccerball.urdf", 0, "#e9eef6", spawn_z=0.12),
+    _pb("pb_cube", "Cube (URDF)", "objects", ["cube"], ["manipulable"], "PyBullet cube.urdf.", "cube.urdf", 0, "#e23d42", spawn_z=0.1),
+    _pb("tray", "Tray", "objects", ["tray"], ["static"], "Tabletop tray (PyBullet).", "tray/tray.urdf", 0, "#c4a574", spawn_z=0.0),
+    _pb("table", "Table", "environments", ["table"], ["static"], "PyBullet table.", "table/table.urdf", 0, "#5c6478", spawn_z=0.0),
+    _pb("teddy", "Teddy", "objects", ["mesh"], ["manipulable"], "Teddy mesh (PyBullet).", "teddy_vhacd.urdf", 0, "#c4a574", spawn_z=0.15),
 ]
 
 

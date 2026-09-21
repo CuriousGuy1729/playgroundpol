@@ -175,6 +175,37 @@ High-quality procedural assets, not a pile of broken meshes:
 - ramp, stairs, hinged door
 - red target cube
 - URDF load path (`assets/robots/cube.urdf` and any `.urdf` you drop in)
+- **PyBullet built-ins** from `pybullet_data`: R2D2, Husky, racecar, Laikago, A1, Mini Cheetah, quadruped, Minitaur, humanoid, KUKA iiwa, Franka Panda, xArm6, cartpole, duck, soccer ball, tray, table
+
+---
+
+## Research campaigns
+
+The **research** chip in the top bar (or *“Run 1000 gait-search experiments and distill a dataset.”* in the prompt) starts a **headless** batch — separate PyBullet `DIRECT` clients, no 4× realtime throttle, no full trajectories.
+
+| Use case | Default N | Why that N |
+|---|---|---|
+| Gait search | 1 000 | Covers freq × amplitude × phase; keep the positive gaits |
+| Domain randomization | 10 000 | Percentiles on friction / gravity / mass |
+| Wheeled navigation | 1 000 | Heading / speed / target draws (Husky, R2D2, racecar) |
+| Arm reach | 1 000 | KUKA / Panda / xArm joint targets vs a cube |
+| Cartpole | 10 000 | Cheap; this is the path toward 100k–1M |
+| Impulse robustness | 1 000 | Stress table, not a new walk |
+
+Presets: **100** (interactive) · **1k** · **10k** · **100k** · **1M**. A process shard caps at 100k (`PRISM_MAX_CAMPAIGN_TRIALS`); leftover N is `resumeFrom` in the manifest. Two parallel sims = two Bullet clients.
+
+Each run writes `data/datasets/<id>/`:
+
+```
+manifest.json     schema, seed, resume offset
+trials.jsonl      one compact row per trial (variation, action, reward, metrics)
+successes.jsonl   positive class
+distilled.jsonl   top 10% by reward (imitation slice)
+summary.csv       spreadsheet view
+README.md
+```
+
+`GET /api/campaigns` lists them; `GET /api/campaigns/<id>/download` zips the folder.
 
 ---
 

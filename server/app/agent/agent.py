@@ -103,6 +103,12 @@ class Agent:
             await self._emit({"type": "status", "agent": "idle"})
             return
 
+        if intent.verb == "campaign":
+            await self._campaign(intent)
+            self.busy = False
+            await self._emit({"type": "status", "agent": "idle"})
+            return
+
         if intent.verb == "explain" or intent.kind == "question" and intent.verb != "inspect":
             await self._explain(text, intent)
             self.busy = False
@@ -143,6 +149,9 @@ class Agent:
         if v == "stop":
             self.interrupt("stop")
             self.world.hold_pose()
+            from ..research.campaign import runner as campaign
+
+            campaign.cancel()
             await self._say("Stopped. Pose is held. Say what you want to try next.")
             return
         if v == "pause":
@@ -183,6 +192,31 @@ class Agent:
             self.world.running = True
             await self._say("Physics is live.")
             return
+
+    async def _campaign(self, intent: Intent) -> None:
+        from ..research.campaign import USECASES, runner as campaign
+
+        extras = dict(intent.extras or {})
+        if intent.asset:
+            extras.setdefault("asset", intent.asset)
+        usecase = extras.get("usecase") or "gait_search"
+        meta = USECASES.get(usecase) or USECASES["gait_search"]
+        n = extras.get("n") or meta["default_n"]
+        asset = extras.get("asset") or meta["default_asset"]
+        try:
+            snap = campaign.start(extras)
+        except RuntimeError as e:
+            await self._say(str(e))
+            return
+        except Exception as e:
+            await self._say(f"Could not start campaign: {e}")
+            return
+        workers = int(extras.get("workers") or 1)
+        await self._say(
+            f"Starting {meta['title'].lower()} — {n} trials on {asset} "
+            f"({snap.get('thisRun')} this run, {workers} sim{'s' if workers > 1 else ''}). "
+            f"Headless PyBullet, no 4× realtime cap. Distilled JSONL lands in {snap.get('dir')}."
+        )
 
     async def _explain(self, text: str, intent: Intent) -> None:
         last = self.memory.last()

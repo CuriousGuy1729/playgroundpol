@@ -100,6 +100,42 @@ class DiffDrive:
 
 
 @dataclass
+class WheelBank:
+    """N-wheel differential drive (Husky, R2D2, racecar)."""
+
+    kind: str = "wheels"
+    left: list[int] = field(default_factory=list)
+    right: list[int] = field(default_factory=list)
+    linear: float = 0.4
+    angular: float = 0.0
+    wheel_radius: float = 0.165
+    track: float = 0.55
+    force: float = 24.0
+
+    def tick(self, client: int, body_id: int, t: float) -> None:
+        v_l = (self.linear - self.angular * self.track * 0.5) / max(self.wheel_radius, 1e-4)
+        v_r = (self.linear + self.angular * self.track * 0.5) / max(self.wheel_radius, 1e-4)
+        for idx in self.left:
+            p.setJointMotorControl2(
+                body_id,
+                int(idx),
+                p.VELOCITY_CONTROL,
+                targetVelocity=v_l,
+                force=self.force,
+                physicsClientId=client,
+            )
+        for idx in self.right:
+            p.setJointMotorControl2(
+                body_id,
+                int(idx),
+                p.VELOCITY_CONTROL,
+                targetVelocity=v_r,
+                force=self.force,
+                physicsClientId=client,
+            )
+
+
+@dataclass
 class ConstantForce:
     kind: str = "force"
     vec: tuple[float, float, float] = (0.0, 0.0, 0.0)
@@ -118,7 +154,7 @@ class ConstantForce:
         )
 
 
-Controller = OscillatorBank | PDHold | DiffDrive | ConstantForce
+Controller = OscillatorBank | PDHold | DiffDrive | WheelBank | ConstantForce
 
 
 def controller_to_dict(c: Controller) -> dict[str, Any]:
@@ -147,6 +183,17 @@ def controller_to_dict(c: Controller) -> dict[str, Any]:
             "right": c.right,
             "linear": c.linear,
             "angular": c.angular,
+        }
+    if isinstance(c, WheelBank):
+        return {
+            "type": "wheels",
+            "left": list(c.left),
+            "right": list(c.right),
+            "linear": c.linear,
+            "angular": c.angular,
+            "wheel_radius": c.wheel_radius,
+            "track": c.track,
+            "force": c.force,
         }
     if isinstance(c, ConstantForce):
         return {"type": "force", "vec": c.vec, "link": c.link}
