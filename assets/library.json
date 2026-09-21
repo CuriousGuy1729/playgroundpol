@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "note": "Canonical catalog lives in server/app/assets/library.py. This file is the portable index.",
+  "assets": [
+    {"id": "pulse", "name": "Pulse", "category": "robots", "tags": ["quadruped", "legged"], "joints": 8},
+    {"id": "kiosk", "name": "Kiosk", "category": "robots", "tags": ["biped"], "joints": 4},
+    {"id": "hauler", "name": "Hauler", "category": "robots", "tags": ["wheeled"], "joints": 2},
+    {"id": "reach", "name": "Reach", "category": "robots", "tags": ["arm"], "joints": 3},
+    {"id": "red_cube", "name": "Red Cube", "category": "objects", "tags": ["cube", "target"]},
+    {"id": "ramp", "name": "Ramp", "category": "environments", "tags": ["ramp"]},
+    {"id": "stairs", "name": "Stairs", "category": "environments", "tags": ["stairs"]},
+    {"id": "door", "name": "Door", "category": "environments", "tags": ["door"]}
+  ]
+}
