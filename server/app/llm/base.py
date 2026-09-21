@@ -83,6 +83,16 @@ class LLMProvider(ABC):
 
 async def detect_provider() -> LLMProvider:
     from ..config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_PROVIDER
+    from .hub import hub
+
+    # User-configured hub wins over env auto-detect.
+    if hub.data.get("active_provider") and hub.data.get("active_provider") != "builtin":
+        try:
+            p = hub.make_provider()
+            if p.name != "builtin":
+                return p
+        except Exception:
+            pass
 
     provider = (LLM_PROVIDER or "auto").lower()
     if provider in ("builtin", "none", "off"):

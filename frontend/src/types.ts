@@ -93,4 +93,55 @@ export interface LlmInfo {
   model: string;
   online: boolean;
   note?: string;
+  active_provider?: string;
+  active_model?: string;
+}
+
+export interface ProviderCard {
+  id: string;
+  name: string;
+  kind: string;
+  docs: string;
+  placeholder: string;
+  models: string[];
+  blurb: string;
+  needs_key: boolean;
+  base_url: string;
+  model: string;
+  has_key: boolean;
+  key_hint: string;
+  enabled: boolean;
+}
+
+export interface LocalModel {
+  id: string;
+  name: string;
+  filename: string;
+  url: string;
+  size_mb: number;
+  context: number;
+  blurb: string;
+  downloaded: boolean;
+  bytes: number;
+  path: string;
+}
+
+export interface DownloadInfo {
+  model_id: string;
+  status: string;
+  received: number;
+  total: number;
+  error?: string;
+  path?: string;
+  pct: number;
+}
+
+export interface HubSnapshot {
+  active_provider: string;
+  active_model: string;
+  providers: ProviderCard[];
+  local_models: LocalModel[];
+  llama_cpp: boolean;
+  vault: string;
+  download: DownloadInfo;
 }

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LabSocket } from "../net/ws";
 import { ViewportEngine } from "../viewport/engine";
-import type { Asset, Attempt, BodyDesc, ChatMsg, Lesson, LlmInfo } from "../types";
+import type { Asset, Attempt, BodyDesc, ChatMsg, DownloadInfo, HubSnapshot, Lesson, LlmInfo } from "../types";
+import { ModelsPanel } from "./ModelsPanel";
 
 const HINTS = [
   "Make this robot walk to the red cube.",
@@ -43,6 +44,9 @@ export function App() {
   const [simTime, setSimTime] = useState(0);
   const [tool, setTool] = useState<string | null>(null);
   const [hint, setHint] = useState(0);
+  const [modelsOpen, setModelsOpen] = useState(false);
+  const [hub, setHub] = useState<HubSnapshot | null>(null);
+  const [download, setDownload] = useState<DownloadInfo | null>(null);
 
   const busy = agent === "experimenting" || agent === "thinking";
 
@@ -56,7 +60,19 @@ export function App() {
       .then((r) => r.json())
       .then(setAssets)
       .catch(() => undefined);
+    fetch("/api/llm/hub")
+      .then((r) => r.json())
+      .then(setHub)
+      .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!modelsOpen) return;
+    fetch("/api/llm/hub")
+      .then((r) => r.json())
+      .then(setHub)
+      .catch(() => undefined);
+  }, [modelsOpen]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -86,7 +102,22 @@ export function App() {
       if (t === "_close") setConnected(false);
       if (t === "hello") {
         setLlm(msg.llm as LlmInfo);
+        if (msg.hub) setHub(msg.hub as HubSnapshot);
         setBooted(true);
+      }
+      if (t === "hub") setHub(msg as unknown as HubSnapshot);
+      if (t === "download") {
+        setDownload(msg as unknown as DownloadInfo);
+        if (msg.status === "done") {
+          fetch("/api/llm/hub")
+            .then((r) => r.json())
+            .then(setHub)
+            .catch(() => undefined);
+        }
+      }
+      if (t === "llm") {
+        setLlm(msg as unknown as LlmInfo);
+        if (msg.hub) setHub(msg.hub as HubSnapshot);
       }
       if (t === "scene") {
         const list = (msg.bodies as BodyDesc[]) || [];
@@ -244,9 +275,13 @@ export function App() {
           <span className="dot" />
           {busy ? agent : "idle"}
         </div>
-        <div className="chip" title={llm?.note || ""}>
-          {llm ? `${llm.provider}${llm.model ? " · " + llm.model : ""}` : "llm…"}
-        </div>
+        <button
+          className="chip model-chip"
+          title={llm?.note || "Choose a model"}
+          onClick={() => setModelsOpen(true)}
+        >
+          {llm ? `${llm.provider}${llm.model ? " · " + llm.model : ""}` : "models"}
+        </button>
         <button className="icon-btn" title="Chat" onClick={() => setRightOpen((v) => !v)}>
           ✶
         </button>

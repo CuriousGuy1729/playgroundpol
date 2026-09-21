@@ -15,5 +15,7 @@ data/projects/*
 .local/
 .env
 *.gguf
+data/secrets.json
+data/models/
 .idea/
 .vscode/

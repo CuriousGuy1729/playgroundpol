@@ -88,11 +88,14 @@ class Lab:
 
     async def register(self, ws: WebSocket) -> None:
         self.clients.add(ws)
+        from .llm.hub import hub
+
         await ws.send_text(
             json.dumps(
                 {
                     "type": "hello",
                     "llm": self.agent.provider_info(),
+                    "hub": hub.snapshot(),
                     "project": self.project.meta(),
                 },
                 default=str,

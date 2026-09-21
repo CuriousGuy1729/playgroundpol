@@ -7,6 +7,8 @@ ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = Path(os.getenv("PRISM_DATA", ROOT / "data"))
 PROJECTS_DIR = DATA_DIR / "projects"
 ASSETS_DIR = ROOT / "assets"
+MODELS_DIR = DATA_DIR / "models"
+SECRETS_PATH = DATA_DIR / "secrets.json"
 DEFAULT_PROJECT = os.getenv("PRISM_PROJECT", "arena")
 
 LLM_PROVIDER = os.getenv("PRISM_LLM_PROVIDER", "auto")
@@ -26,5 +28,5 @@ AGENT_WALLCLOCK = float(os.getenv("PRISM_AGENT_WALLCLOCK", "180"))
 HOST = os.getenv("PRISM_HOST", "0.0.0.0")
 PORT = int(os.getenv("PRISM_PORT", "8765"))
 
-for path in (DATA_DIR, PROJECTS_DIR, ASSETS_DIR):
+for path in (DATA_DIR, PROJECTS_DIR, ASSETS_DIR, MODELS_DIR):
     path.mkdir(parents=True, exist_ok=True)

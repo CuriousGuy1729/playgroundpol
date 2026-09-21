@@ -40,10 +40,21 @@ class Agent:
     async def boot(self) -> None:
         self.provider = await detect_provider()
 
+    async def set_provider(self, provider: LLMProvider) -> None:
+        self.provider = provider
+        self.history = [Message(role="system", content=SYSTEM)]
+        await self._emit({"type": "llm", **self.provider_info()})
+
     def provider_info(self) -> dict[str, Any]:
         if not self.provider:
-            return {"provider": "none", "online": False}
-        return self.provider.info()
+            return {"provider": "none", "online": False, "model": ""}
+        info = self.provider.info()
+        from ..llm.hub import hub
+
+        snap = hub.snapshot()
+        info["active_provider"] = snap.get("active_provider")
+        info["active_model"] = snap.get("active_model")
+        return info
 
     def _on_frame(self, sample: dict[str, Any]) -> None:
         # Called from the sim thread; broadcast is async-safe via the lab queue.

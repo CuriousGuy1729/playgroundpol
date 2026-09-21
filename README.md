@@ -69,26 +69,41 @@ Shift-drag a body on the arena to move it. The agent treats that as the new worl
 
 ---
 
-## Local models (Qwen and friends)
+## Models — API keys and local Qwen
 
-PRISM auto-detects, in order:
+Click the **model chip** in the top bar. That panel is the interface you hand to the agent.
 
-1. **Ollama** at `http://127.0.0.1:11434` (default)
-2. **OpenAI-compatible** servers (llama.cpp, vLLM, LM Studio) at `PRISM_LLM_BASE_URL`
-3. **Built-in experimenter** — same tools, parameter-space search, no weights required
+### Cloud keys
+
+Paste a key for any of:
+
+OpenAI · Anthropic · Gemini · Groq · OpenRouter · Together · Mistral · DeepSeek · Fireworks · xAI · Ollama · llama.cpp / LM Studio · custom OpenAI-compatible URL
+
+Keys are written to `data/secrets.json` on **this machine** (mode 0600), never to git, never to a remote PRISM server. Hit **Use this model** to switch the agent live.
+
+### Local ~300 MB Qwen
+
+The **Local Qwen** tab downloads a GGUF into the lab vault (`data/models/`):
+
+| Pack | Size | Notes |
+|---|---|---|
+| Qwen2.5 0.5B Instruct Q3_K_M | ~308 MB | Compact experiment brain |
+| Qwen2.5 0.5B Instruct Q4_K_M | ~398 MB | Better quality, still laptop-sized |
+
+Progress streams over the websocket. **Use local Qwen** points the agent at those weights via `llama-cpp-python` if installed:
 
 ```bash
-ollama pull qwen2.5:7b          # or qwen2.5:3b on smaller machines
-export PRISM_LLM_PROVIDER=ollama
-export PRISM_LLM_MODEL=qwen2.5:7b
-export PRISM_LLM_BASE_URL=http://127.0.0.1:11434
+.venv/bin/pip install llama-cpp-python
 ```
 
+A 0.5B model is for tinkering — if tool-calling is weak, PRISM falls back to the built-in experimenter with the same physics tools.
+
+Env vars still work as a default when no hub selection is saved:
+
 ```bash
-# llama.cpp server
-export PRISM_LLM_PROVIDER=llamacpp
-export PRISM_LLM_BASE_URL=http://127.0.0.1:8080
-export PRISM_LLM_MODEL=qwen2.5
+ollama pull qwen2.5:7b
+export PRISM_LLM_PROVIDER=ollama
+export PRISM_LLM_MODEL=qwen2.5:7b
 ```
 
 The agent speaks OpenAI-style tool calls. The system prompt forbids recipes: no `walk()`, no `grab()`, no host access.

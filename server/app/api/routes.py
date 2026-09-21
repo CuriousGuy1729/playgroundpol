@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import asyncio
+
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..lab import lab
+from ..llm.hub import hub
 
 router = APIRouter()
 
@@ -69,6 +72,108 @@ async def reset():
 @router.get("/api/llm")
 async def llm_status():
     return lab.agent.provider_info()
+
+
+@router.get("/api/llm/hub")
+async def llm_hub():
+    return hub.snapshot()
+
+
+class ProviderIn(BaseModel):
+    provider_id: str
+    api_key: str | None = None
+    model: str | None = None
+    base_url: str | None = None
+    activate: bool = False
+
+
+class ActivateIn(BaseModel):
+    provider_id: str
+    model: str | None = None
+
+
+class DownloadIn(BaseModel):
+    model_id: str
+
+
+@router.post("/api/llm/keys")
+async def save_key(body: ProviderIn):
+    try:
+        snap = hub.upsert_provider(
+            body.provider_id,
+            api_key=body.api_key,
+            model=body.model,
+            base_url=body.base_url,
+            activate=body.activate,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if body.activate:
+        await lab.agent.set_provider(hub.make_provider())
+    return snap
+
+
+@router.delete("/api/llm/keys/{provider_id}")
+async def clear_key(provider_id: str):
+    snap = hub.clear_key(provider_id)
+    await lab.agent.set_provider(hub.make_provider())
+    return snap
+
+
+@router.post("/api/llm/activate")
+async def activate_model(body: ActivateIn):
+    try:
+        snap = hub.activate(body.provider_id, body.model)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    await lab.agent.set_provider(hub.make_provider())
+    lab.emit({"type": "llm", **lab.agent.provider_info(), "hub": snap})
+    return snap
+
+
+@router.post("/api/llm/test")
+async def test_model(body: ActivateIn):
+    return await hub.test_provider(body.provider_id)
+
+
+@router.post("/api/llm/download")
+async def download_model(body: DownloadIn):
+    if hub.download.status == "running":
+        raise HTTPException(409, "a download is already running")
+
+    def progress(info: dict) -> None:
+        lab.emit({"type": "download", **info})
+
+    async def _run() -> None:
+        try:
+            snap = await hub.download_model(body.model_id, on_progress=progress)
+            lab.emit({"type": "download", **snap["download"]})
+            lab.emit({"type": "hub", **snap})
+        except Exception as e:
+            lab.emit({"type": "download", "status": "error", "error": str(e), "model_id": body.model_id})
+
+    asyncio.create_task(_run())
+    return {"ok": True, "download": hub.snapshot()["download"]}
+
+
+@router.post("/api/llm/download/cancel")
+async def cancel_download():
+    hub.cancel_download()
+    return {"ok": True}
+
+
+@router.delete("/api/llm/local/{model_id}")
+async def delete_local(model_id: str):
+    loc = hub.local_by_id(model_id)
+    if not loc:
+        raise HTTPException(404, "unknown model")
+    path = hub.gguf_path(loc["filename"])
+    if path.exists():
+        path.unlink()
+    if hub.data.get("active_provider") == "local-gguf" and hub.data.get("active_model") == model_id:
+        hub.activate("builtin")
+        await lab.agent.set_provider(hub.make_provider())
+    return hub.snapshot()
 
 
 @router.websocket("/ws")
