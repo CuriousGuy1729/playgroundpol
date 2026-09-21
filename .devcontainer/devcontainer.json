@@ -1,0 +1,32 @@
+{
+  "name": "PRISM Lab",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    }
+  },
+  "forwardPorts": [5173, 8765],
+  "portsAttributes": {
+    "5173": {
+      "label": "PRISM Lab UI — open this",
+      "onAutoForward": "openPreview",
+      "visibility": "public"
+    },
+    "8765": {
+      "label": "PRISM API (keep private)",
+      "onAutoForward": "silent",
+      "visibility": "private"
+    }
+  },
+  "postCreateCommand": "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && cd frontend && npm install",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python"]
+    }
+  },
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "4gb"
+  }
+}

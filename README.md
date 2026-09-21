@@ -54,6 +54,27 @@ Open the Vite URL. The prompt bar is the product — type like you would to a la
 
 ---
 
+## GitHub Codespaces
+
+Yes — the stack is Codespaces-ready. The browser never talks to `localhost`; it uses relative `/api` and `/ws`, and both servers bind `0.0.0.0`.
+
+**Open port `5173`.** That is the lab UI.
+
+| Port | What | Codespaces |
+|---|---|---|
+| **5173** | Vite UI (open this) | Public / Open in Browser |
+| **8765** | FastAPI + WebSocket | Keep **private** — Vite proxies `/api` and `/ws` to it |
+
+```bash
+bash scripts/start.sh
+```
+
+Then in the **Ports** tab click **5173**. If the page is blank or the socket will not connect, set 5173 visibility to **Public**.
+
+Single-port option (no Vite): `cd frontend && npm run build`, start only uvicorn, open **8765**.
+
+---
+
 ## Talk to it
 
 | You | The lab |
