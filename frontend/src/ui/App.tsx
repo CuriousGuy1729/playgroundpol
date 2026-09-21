@@ -102,7 +102,14 @@ export function App() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const engine = new ViewportEngine(canvas);
+    let engine: ViewportEngine;
+    try {
+      engine = new ViewportEngine(canvas);
+    } catch (err) {
+      console.error("WebGL viewport failed", err);
+      setBooted(true);
+      return;
+    }
     engineRef.current = engine;
     engine.setHandlers({
       onSelect: (id) => setSelected(id),
