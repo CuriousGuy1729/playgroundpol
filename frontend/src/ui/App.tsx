@@ -71,6 +71,16 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    const t = window.setTimeout(() => setBooted(true), 1800);
+    fetch("/api/health")
+      .then((r) => {
+        if (r.ok) setBooted(true);
+      })
+      .catch(() => undefined);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
     fetch("/api/assets")
       .then((r) => r.json())
       .then(setAssets)
