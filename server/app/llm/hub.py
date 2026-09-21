@@ -16,7 +16,14 @@ from .builtin import BuiltinProvider
 from .gemini import GeminiProvider
 from .gguf import GgufProvider, llama_cpp_available
 from .ollama import OllamaProvider
-from .openai_compat import OpenAICompatProvider
+from .openai_compat import OPENROUTER_HEADERS, OpenAICompatProvider, openai_root
+
+PAID_OPENROUTER_DEFAULTS = {
+    "qwen/qwen-2.5-7b-instruct",
+    "openai/gpt-4o-mini",
+    "anthropic/claude-3.5-sonnet",
+    "google/gemini-2.0-flash-001",
+}
 
 
 PROVIDER_CATALOG: list[dict[str, Any]] = [
@@ -71,15 +78,21 @@ PROVIDER_CATALOG: list[dict[str, Any]] = [
         "base_url": "https://openrouter.ai/api/v1",
         "needs_key": True,
         "docs": "https://openrouter.ai/keys",
-        "placeholder": "sk-or-...",
+        "placeholder": "sk-or-v1-...",
         "models": [
-            "qwen/qwen-2.5-7b-instruct",
-            "openai/gpt-4o-mini",
-            "anthropic/claude-3.5-sonnet",
-            "google/gemini-2.0-flash-001",
+            "openrouter/free",
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "openai/gpt-oss-20b:free",
+            "openai/gpt-oss-120b:free",
+            "qwen/qwen3-coder:free",
+            "google/gemma-4-31b-it:free",
+            "nvidia/nemotron-nano-9b-v2:free",
         ],
-        "blurb": "One key, many labs. Qwen, Claude, GPT, Gemini.",
-        "extra_headers": {"HTTP-Referer": "http://localhost", "X-Title": "PRISM Lab"},
+        "blurb": "Paste a key, then pick a FREE model (id ends in :free). Paid IDs will 402.",
+        "extra_headers": {
+            "HTTP-Referer": "https://github.com/CuriousGuy1729/playgroundpol",
+            "X-Title": "PRISM Lab",
+        },
     },
     {
         "id": "together",
@@ -234,6 +247,13 @@ class LLMHub:
         self.data.setdefault("providers", {})
         self.data.setdefault("active_provider", "builtin")
         self.data.setdefault("active_model", "prism-experimenter")
+        st = (self.data.get("providers") or {}).get("openrouter")
+        if isinstance(st, dict):
+            m = (st.get("model") or "").strip()
+            if not m or m in PAID_OPENROUTER_DEFAULTS:
+                st["model"] = "openrouter/free"
+                if self.data.get("active_provider") == "openrouter":
+                    self.data["active_model"] = "openrouter/free"
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -320,6 +340,10 @@ class LLMHub:
             st["model"] = model.strip()
         if base_url is not None and base_url.strip():
             st["base_url"] = base_url.strip()
+        if provider_id == "openrouter":
+            m = (st.get("model") or "").strip()
+            if not m or m in PAID_OPENROUTER_DEFAULTS:
+                st["model"] = "openrouter/free"
         st["enabled"] = True
         self.data["providers"][provider_id] = st
         if activate:
@@ -390,7 +414,11 @@ class LLMHub:
             return AnthropicProvider(api_key=key, model=model, base_url=base)
         if kind == "gemini":
             return GeminiProvider(api_key=key, model=model)
-        extra = spec.get("extra_headers") or {}
+        extra = dict(spec.get("extra_headers") or {})
+        if pid == "openrouter":
+            extra = {**OPENROUTER_HEADERS, **extra}
+            if not model or model in PAID_OPENROUTER_DEFAULTS:
+                model = "openrouter/free"
         return OpenAICompatProvider(
             base_url=base,
             model=model,
@@ -399,7 +427,77 @@ class LLMHub:
             extra_headers=extra,
         )
 
+    async def list_models(self, provider_id: str, free_only: bool = True) -> dict[str, Any]:
+        spec = self.catalog_by_id(provider_id)
+        if not spec:
+            return {"ok": False, "error": "unknown provider", "models": []}
+        st = (self.data.get("providers") or {}).get(provider_id) or {}
+        key = st.get("api_key") or ""
+        root = openai_root(st.get("base_url") or spec.get("base_url") or "")
+        headers = {"Content-Type": "application/json"}
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        if provider_id == "openrouter" or "openrouter.ai" in root:
+            headers.update(OPENROUTER_HEADERS)
+        try:
+            async with httpx.AsyncClient(timeout=25.0) as c:
+                r = await c.get(f"{root}/v1/models", headers=headers)
+            if r.status_code >= 400:
+                return {
+                    "ok": False,
+                    "error": f"HTTP {r.status_code}: {(r.text or '')[:300]}",
+                    "models": [{"id": m, "name": m, "free": True, "tools": True} for m in (spec.get("models") or [])],
+                }
+            payload = r.json()
+        except Exception as e:
+            return {
+                "ok": False,
+                "error": str(e),
+                "models": [{"id": m, "name": m, "free": True, "tools": True} for m in (spec.get("models") or [])],
+            }
+        rows = payload.get("data") if isinstance(payload, dict) else payload
+        models: list[dict[str, Any]] = []
+        for m in rows or []:
+            if not isinstance(m, dict):
+                continue
+            mid = str(m.get("id") or "")
+            if not mid:
+                continue
+            pricing = m.get("pricing") or {}
+            try:
+                prompt_p = float(pricing.get("prompt") or 0)
+                comp_p = float(pricing.get("completion") or 0)
+            except Exception:
+                prompt_p, comp_p = 1.0, 1.0
+            is_free = (prompt_p == 0.0 and comp_p == 0.0) or mid.endswith(":free") or mid == "openrouter/free"
+            if free_only and provider_id == "openrouter" and not is_free:
+                continue
+            params = m.get("supported_parameters") or []
+            if isinstance(params, str):
+                params = [params]
+            tools = "tools" in params or "tool_choice" in params
+            arch = m.get("architecture") or {}
+            modality = str(arch.get("modality") or m.get("modality") or "")
+            if "audio" in modality and "text" not in modality:
+                continue
+            models.append(
+                {
+                    "id": mid,
+                    "name": m.get("name") or mid,
+                    "free": is_free,
+                    "tools": bool(tools),
+                    "context": m.get("context_length") or m.get("context") or 0,
+                    "description": (m.get("description") or "")[:220],
+                }
+            )
+        models.sort(key=lambda x: (not x.get("tools"), not x.get("free"), x.get("id") or ""))
+        if provider_id == "openrouter" and not any(x["id"] == "openrouter/free" for x in models):
+            models.insert(0, {"id": "openrouter/free", "name": "OpenRouter Free Auto", "free": True, "tools": True, "context": 0, "description": "Routes to a free model."})
+        return {"ok": True, "models": models, "count": len(models)}
+
     async def test_provider(self, provider_id: str) -> dict[str, Any]:
+        from .base import Message
+
         prev = self.data.get("active_provider"), self.data.get("active_model")
         try:
             if provider_id == "local-gguf":
@@ -410,16 +508,30 @@ class LLMHub:
                         return {"ok": False, "error": "No GGUF in the vault"}
                     p = GgufProvider(self.gguf_path(loc["filename"]), loc["id"])
             else:
-                # temporarily
                 spec = self.catalog_by_id(provider_id)
                 if not spec:
                     return {"ok": False, "error": "unknown provider"}
                 st = (self.data.get("providers") or {}).get(provider_id) or {}
+                if spec.get("needs_key") and not st.get("api_key"):
+                    return {"ok": False, "error": "No API key saved for this provider"}
                 self.data["active_provider"] = provider_id
                 self.data["active_model"] = st.get("model") or (spec["models"][0] if spec.get("models") else "")
                 p = self.make_provider()
-            ok = await p.available()
-            return {"ok": bool(ok), "provider": p.name, "model": p.model, "error": None if ok else "endpoint did not respond"}
+            ping = await p.chat(
+                [
+                    Message(role="system", content="Reply with the single word pong."),
+                    Message(role="user", content="ping"),
+                ],
+                tools=None,
+            )
+            sample = (ping.content or "").strip()[:240]
+            return {
+                "ok": True,
+                "provider": p.name,
+                "model": p.model,
+                "sample": sample,
+                "error": None,
+            }
         except Exception as e:
             return {"ok": False, "error": str(e)}
         finally:

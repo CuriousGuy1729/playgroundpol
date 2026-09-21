@@ -322,7 +322,11 @@ export function App() {
           title={llm?.note || "Choose a model"}
           onClick={() => setModelsOpen(true)}
         >
-          {llm ? `${llm.provider}${llm.model ? " · " + llm.model : ""}` : "models"}
+          {llm
+            ? `${llm.active_provider || llm.provider}${
+                llm.active_model || llm.model ? " · " + (llm.active_model || llm.model) : ""
+              }`
+            : "models"}
         </button>
         <button className="icon-btn" title="Chat" onClick={() => setRightOpen((v) => !v)}>
           ✶

@@ -77,7 +77,9 @@ Shift-drag a body on the arena to move it. The agent treats that as the new worl
 
 ## Models — API keys and local Qwen
 
-Click the **model chip** in the top bar. That panel is the interface you hand to the agent.
+Click the **model chip** in the top bar. Paste a key and click **Use this model**. The lab then sends your prompt plus a physics system prompt to that API (it will not silently fall back to the built-in gait script).
+
+**OpenRouter free tier:** after the key is saved, click **Load free models** and pick an id ending in `:free` (or `openrouter/free`). Paid model ids return 402.
 
 ### Cloud keys
 

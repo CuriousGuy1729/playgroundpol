@@ -97,20 +97,31 @@ class DownloadIn(BaseModel):
     model_id: str
 
 
+@router.get("/api/llm/models")
+async def list_llm_models(provider_id: str = "openrouter", free_only: bool = True):
+    return await hub.list_models(provider_id, free_only=free_only)
+
+
 @router.post("/api/llm/keys")
 async def save_key(body: ProviderIn):
+    activate = body.activate
+    key = (body.api_key or "").strip()
+    if key and "••••" not in key:
+        activate = True
     try:
         snap = hub.upsert_provider(
             body.provider_id,
             api_key=body.api_key,
             model=body.model,
             base_url=body.base_url,
-            activate=body.activate,
+            activate=activate,
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
-    if body.activate:
+    if activate or hub.data.get("active_provider") == body.provider_id:
         await lab.agent.set_provider(hub.make_provider())
+        lab.emit({"type": "llm", **lab.agent.provider_info(), "hub": snap})
+        lab.emit({"type": "hub", **snap})
     return snap
 
 

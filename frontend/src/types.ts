@@ -136,6 +136,15 @@ export interface DownloadInfo {
   pct: number;
 }
 
+export interface RemoteModel {
+  id: string;
+  name: string;
+  free: boolean;
+  tools: boolean;
+  context?: number;
+  description?: string;
+}
+
 export interface HubSnapshot {
   active_provider: string;
   active_model: string;

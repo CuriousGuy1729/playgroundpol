@@ -97,7 +97,20 @@ class Agent:
         intent = parse_intent(text, self.context)
         await self._emit({"type": "intent", **intent.to_dict()})
 
-        if intent.kind == "meta":
+        # Always re-read the hub so a key pasted in the panel is used on the next prompt.
+        from ..llm.hub import hub
+
+        try:
+            live = hub.make_provider()
+            ident = (getattr(live, "name", ""), getattr(live, "model", ""))
+            if ident != getattr(self, "_provider_ident", None):
+                self.history = [Message(role="system", content=SYSTEM)]
+                self._provider_ident = ident
+            self.provider = live
+        except Exception:
+            pass
+
+        if intent.kind == "meta" and intent.verb in ("stop", "pause", "resume", "undo", "reset", "save", "play"):
             await self._meta(intent)
             self.busy = False
             await self._emit({"type": "status", "agent": "idle"})
@@ -109,19 +122,21 @@ class Agent:
             await self._emit({"type": "status", "agent": "idle"})
             return
 
-        if intent.verb == "explain" or intent.kind == "question" and intent.verb != "inspect":
-            await self._explain(text, intent)
-            self.busy = False
-            await self._emit({"type": "status", "agent": "idle"})
-            return
+        use_llm = bool(self.provider and self.provider.name != "builtin")
 
-        if intent.verb == "inspect":
-            scene = self.tools.inspect_scene()
-            await self._say(_scene_blurb(scene))
-            await self._emit({"type": "tool_result", "tool": "inspect_scene", "result": _compact(scene)})
-            self.busy = False
-            await self._emit({"type": "status", "agent": "idle"})
-            return
+        if not use_llm:
+            if intent.verb == "explain" or (intent.kind == "question" and intent.verb != "inspect"):
+                await self._explain(text, intent)
+                self.busy = False
+                await self._emit({"type": "status", "agent": "idle"})
+                return
+            if intent.verb == "inspect":
+                scene = self.tools.inspect_scene()
+                await self._say(_scene_blurb(scene))
+                await self._emit({"type": "tool_result", "tool": "inspect_scene", "result": _compact(scene)})
+                self.busy = False
+                await self._emit({"type": "status", "agent": "idle"})
+                return
 
         # New or continued task
         if intent.verb in ("walk", "climb", "carry", "manipulate", "balance", "load"):
@@ -134,7 +149,6 @@ class Agent:
         elif intent.verb == "add":
             self.context["last_target"] = intent.asset or intent.target
 
-        use_llm = self.provider and self.provider.name != "builtin"
         try:
             if use_llm:
                 await self._llm_loop(text, intent)
@@ -162,13 +176,20 @@ class Agent:
             self.paused = False
             await self._say("Resuming from the current state.")
             if self.memory.objective:
-                await self._experiment_loop(parse_intent(self.memory.objective, self.context))
+                intent2 = parse_intent(self.memory.objective, self.context)
+                if self.provider and self.provider.name != "builtin":
+                    await self._llm_loop(self.memory.objective, intent2)
+                else:
+                    await self._experiment_loop(intent2)
             return
         if v == "retry":
             await self._say("Retrying with a different parameterization.")
             intent2 = parse_intent(self.memory.objective or "walk", self.context)
             intent2.constraints = self.memory.constraints
-            await self._experiment_loop(intent2)
+            if self.provider and self.provider.name != "builtin":
+                await self._llm_loop(self.memory.objective or "try a different approach", intent2)
+            else:
+                await self._experiment_loop(intent2)
             return
         if v == "undo":
             ok = self.world.undo()
@@ -375,15 +396,33 @@ class Agent:
 
     async def _llm_loop(self, text: str, intent: Intent) -> None:
         assert self.provider
-        self.history.append(Message(role="user", content=text))
-        # Seed with a scene observation so the model doesn't skip inspect.
+        key = getattr(self.provider, "api_key", "x")
+        if key in ("", "local") and self.provider.name not in ("ollama", "llamacpp", "local-gguf"):
+            await self._say(
+                f"{self.provider.name} is selected but no API key is stored. "
+                "Open the models chip, paste the key, pick a free model, click Use this model."
+            )
+            return
+        await self._emit(
+            {
+                "type": "chat",
+                "role": "system",
+                "content": f"Brain: {self.provider.name} · {self.provider.model}",
+            }
+        )
         scene = self.tools.inspect_scene()
         self.history.append(
             Message(
                 role="user",
-                content="[automatic scene snapshot]\n" + json.dumps(_compact(scene))[:3500],
+                content=(
+                    f"{text.strip()}\n\n"
+                    "---\nLive PyBullet scene (JSON). Act with tools; do not only describe.\n"
+                    + json.dumps(_compact(scene), default=str)[:3200]
+                ),
             )
         )
+        if len(self.history) > 48:
+            self.history = [self.history[0]] + self.history[-40:]
         rounds = 0
         await self._emit({"type": "status", "agent": "experimenting"})
         while rounds < 18:
@@ -394,15 +433,19 @@ class Agent:
             try:
                 resp = await self.provider.chat(self.history, TOOL_SCHEMAS)
             except Exception as e:
-                await self._say(f"LLM provider failed ({e}). Switching to the built-in experimenter.")
-                await self._experiment_loop(intent)
+                await self._say(_friendly_llm_error(e))
                 return
             if resp.content and not resp.tool_calls:
                 await self._say(resp.content)
                 self.history.append(Message(role="assistant", content=resp.content))
                 # If the model just talked without acting on a task, fall back.
-                if intent.kind == "task" and rounds < 3 and intent.verb in ("walk", "climb", "carry"):
-                    self.history.append(Message(role="user", content="Use tools. Run experiments. Do not only describe."))
+                if intent.kind == "task" and rounds < 4:
+                    self.history.append(
+                        Message(
+                            role="user",
+                            content="Use tools now. Call inspect_scene or modify_controller then run_simulation. Do not only describe.",
+                        )
+                    )
                     continue
                 break
             if resp.content:
@@ -456,6 +499,24 @@ class Agent:
         out = self.broadcast(msg)
         if asyncio.iscoroutine(out):
             await out
+
+
+
+def _friendly_llm_error(e: Exception) -> str:
+    s = str(e)
+    low = s.lower()
+    if "402" in s or "credit" in low or "can only afford" in low or "requires more credits" in low:
+        return (
+            "OpenRouter refused this model (not on the free tier / no credits). "
+            "Open the models chip → Load free models → pick an id ending in :free → Use this model."
+        )
+    if "401" in s or "unauthorized" in low or "invalid api" in low:
+        return "API key rejected. Paste a valid OpenRouter key and click Use this model."
+    if "429" in s or "rate" in low:
+        return "Rate limited by the provider. Wait a few seconds and try again, or pick another free model."
+    if "404" in s or "no endpoints" in low:
+        return f"That model id is not available. Load free models and pick a live :free id. ({s})"
+    return f"Model call failed: {s}"
 
 
 def _scene_blurb(scene: dict[str, Any]) -> str:
