@@ -430,13 +430,28 @@ class Agent:
                 await self._say("Interrupted.")
                 break
             rounds += 1
+            streamed = {"n": 0}
+
+            async def on_delta(piece: str) -> None:
+                if not piece:
+                    return
+                streamed["n"] += 1
+                await self._emit({"type": "chat_delta", "role": "assistant", "content": piece})
+
             try:
-                resp = await self.provider.chat(self.history, TOOL_SCHEMAS)
+                resp = await self.provider.chat(self.history, TOOL_SCHEMAS, on_delta=on_delta)  # type: ignore[call-arg]
+            except TypeError:
+                try:
+                    resp = await self.provider.chat(self.history, TOOL_SCHEMAS)
+                except Exception as e:
+                    await self._say(_friendly_llm_error(e))
+                    return
             except Exception as e:
                 await self._say(_friendly_llm_error(e))
                 return
             if resp.content and not resp.tool_calls:
-                await self._say(resp.content)
+                if not streamed["n"]:
+                    await self._say(resp.content)
                 self.history.append(Message(role="assistant", content=resp.content))
                 # If the model just talked without acting on a task, fall back.
                 if intent.kind == "task" and rounds < 4:
@@ -448,7 +463,7 @@ class Agent:
                     )
                     continue
                 break
-            if resp.content:
+            if resp.content and not streamed["n"]:
                 await self._say(resp.content)
             if not resp.tool_calls:
                 break

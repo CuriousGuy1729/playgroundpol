@@ -159,16 +159,42 @@ export function App() {
       if (t === "poses") {
         engine.applyPoses(msg as { t: number; bodies: any[] });
       }
+      if (t === "chat_delta") {
+        const piece = String(msg.content || "");
+        if (!piece) return;
+        setChat((c) => {
+          const last = c[c.length - 1];
+          if (last && last.role === "assistant" && last.streaming) {
+            return [...c.slice(0, -1), { ...last, content: last.content + piece }];
+          }
+          return [
+            ...c,
+            {
+              id: `m${msgSeq++}`,
+              role: "assistant",
+              content: piece,
+              ts: Number(msg.ts || Date.now()),
+              streaming: true,
+            },
+          ];
+        });
+      }
       if (t === "chat") {
-        setChat((c) => [
-          ...c,
-          {
-            id: `m${msgSeq++}`,
-            role: msg.role as ChatMsg["role"],
-            content: String(msg.content || ""),
-            ts: Number(msg.ts || Date.now()),
-          },
-        ]);
+        setChat((c) => {
+          const last = c[c.length - 1];
+          if (last && last.role === "assistant" && last.streaming && msg.role === "assistant") {
+            return [...c.slice(0, -1), { ...last, content: String(msg.content || last.content), streaming: false }];
+          }
+          return [
+            ...c,
+            {
+              id: `m${msgSeq++}`,
+              role: msg.role as ChatMsg["role"],
+              content: String(msg.content || ""),
+              ts: Number(msg.ts || Date.now()),
+            },
+          ];
+        });
       }
       if (t === "attempt") {
         const a = msg as unknown as Attempt;

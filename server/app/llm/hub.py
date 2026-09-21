@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
@@ -16,7 +17,7 @@ from .builtin import BuiltinProvider
 from .gemini import GeminiProvider
 from .gguf import GgufProvider, llama_cpp_available
 from .ollama import OllamaProvider
-from .openai_compat import OPENROUTER_HEADERS, OpenAICompatProvider, openai_root
+from .openai_compat import DEFAULT_OPENROUTER_MODEL, OPENROUTER_HEADERS, OpenAICompatProvider, openai_root
 
 PAID_OPENROUTER_DEFAULTS = {
     "qwen/qwen-2.5-7b-instruct",
@@ -80,15 +81,15 @@ PROVIDER_CATALOG: list[dict[str, Any]] = [
         "docs": "https://openrouter.ai/keys",
         "placeholder": "sk-or-v1-...",
         "models": [
+            "google/gemma-4-26b-a4b-it:free",
+            "google/gemma-4-31b-it:free",
             "openrouter/free",
             "meta-llama/llama-3.3-70b-instruct:free",
             "openai/gpt-oss-20b:free",
-            "openai/gpt-oss-120b:free",
             "qwen/qwen3-coder:free",
-            "google/gemma-4-31b-it:free",
             "nvidia/nemotron-nano-9b-v2:free",
         ],
-        "blurb": "Paste a key, then pick a FREE model (id ends in :free). Paid IDs will 402.",
+        "blurb": "Official OpenRouter chat/completions (streamed). Default: google/gemma-4-26b-a4b-it:free.",
         "extra_headers": {
             "HTTP-Referer": "https://github.com/CuriousGuy1729/playgroundpol",
             "X-Title": "PRISM Lab",
@@ -236,6 +237,7 @@ class LLMHub:
         self.data: dict[str, Any] = {"active_provider": "builtin", "active_model": "prism-experimenter", "providers": {}}
         self.download = DownloadState()
         self._cancel = False
+        self._dl_proc = None
         self._load()
 
     def _load(self) -> None:
@@ -251,9 +253,9 @@ class LLMHub:
         if isinstance(st, dict):
             m = (st.get("model") or "").strip()
             if not m or m in PAID_OPENROUTER_DEFAULTS:
-                st["model"] = "openrouter/free"
+                st["model"] = DEFAULT_OPENROUTER_MODEL
                 if self.data.get("active_provider") == "openrouter":
-                    self.data["active_model"] = "openrouter/free"
+                    self.data["active_model"] = DEFAULT_OPENROUTER_MODEL
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -343,7 +345,7 @@ class LLMHub:
         if provider_id == "openrouter":
             m = (st.get("model") or "").strip()
             if not m or m in PAID_OPENROUTER_DEFAULTS:
-                st["model"] = "openrouter/free"
+                st["model"] = DEFAULT_OPENROUTER_MODEL
         st["enabled"] = True
         self.data["providers"][provider_id] = st
         if activate:
@@ -537,6 +539,27 @@ class LLMHub:
         finally:
             self.data["active_provider"], self.data["active_model"] = prev
 
+    def _download_urls(self, loc: dict[str, Any]) -> list[str]:
+        url = loc["url"]
+        urls = [url]
+        if "huggingface.co" in url:
+            urls.append(url.replace("https://huggingface.co", "https://hf-mirror.com"))
+            # huggingface LFS often sits behind this CDN after a redirect
+            urls.append(url + "?download=true")
+        return urls
+
+    def _friendly_download_error(self, err: Exception) -> str:
+        s = str(err)
+        low = s.lower()
+        if any(x in low for x in ("ssl", "tls", "eof", "certificate", "handshake", "curl: (35)", "curl: (56)")):
+            return (
+                "HuggingFace TLS is blocked from this machine, so local Qwen cannot download. "
+                "You do not need it — paste an OpenRouter key and use google/gemma-4-26b-a4b-it:free."
+            )
+        if "404" in s or "not found" in low:
+            return f"Weights URL 404. Use OpenRouter free models instead. ({s})"
+        return s
+
     async def download_model(self, model_id: str, on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
         loc = self.local_by_id(model_id)
         if not loc:
@@ -550,62 +573,73 @@ class LLMHub:
         )
         if on_progress:
             on_progress(self.snapshot()["download"])
+        last_err: Exception | None = None
         try:
-            headers = {"User-Agent": "PRISM-Lab/0.1"}
-            urls = [loc["url"]]
-            if "huggingface.co" in loc["url"]:
-                urls.append(loc["url"].replace("https://huggingface.co", "https://hf-mirror.com"))
-            last_err: Exception | None = None
-            async with httpx.AsyncClient(timeout=None, follow_redirects=True, headers=headers) as client:
-                r = None
-                for url in urls:
-                    try:
-                        req = client.build_request("GET", url)
-                        r = await client.send(req, stream=True)
-                        if r.status_code < 400:
-                            break
-                        last_err = RuntimeError(f"HTTP {r.status_code} for {url}")
-                        await r.aclose()
-                        r = None
-                    except Exception as e:
-                        last_err = e
-                        r = None
-                if r is None:
-                    raise last_err or RuntimeError("download failed")
-                async with r:
-                    total = int(r.headers.get("content-length") or 0)
-                    if total:
-                        self.download.total = total
-                    received = 0
-                    last_emit = 0.0
-                    with open(part, "wb") as f:
-                        async for chunk in r.aiter_bytes(1024 * 64):
-                            if self._cancel:
-                                self.download.status = "cancelled"
-                                break
-                            f.write(chunk)
-                            received += len(chunk)
-                            self.download.received = received
-                            now = time.time()
-                            if on_progress and now - last_emit > 0.25:
-                                last_emit = now
-                                on_progress(self.snapshot()["download"])
-            if self.download.status == "cancelled":
+            for url in self._download_urls(loc):
+                if self._cancel:
+                    break
                 if part.exists():
-                    part.unlink()
-                if on_progress:
-                    on_progress(self.snapshot()["download"])
-                return self.snapshot()
-            part.replace(dest)
-            self.download.status = "done"
-            self.download.received = dest.stat().st_size
-            self.download.total = self.download.received
-            if on_progress:
-                on_progress(self.snapshot()["download"])
-            return self.snapshot()
+                    try:
+                        part.unlink()
+                    except Exception:
+                        pass
+                cmd = [
+                    "curl",
+                    "-L",
+                    "--fail",
+                    "--retry",
+                    "4",
+                    "--retry-delay",
+                    "2",
+                    "--retry-all-errors",
+                    "--http1.1",
+                    "-A",
+                    "PRISM-Lab/0.1",
+                    "-o",
+                    str(part),
+                    url,
+                ]
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                self._dl_proc = proc
+                while proc.returncode is None:
+                    if self._cancel:
+                        proc.kill()
+                        break
+                    if part.exists():
+                        self.download.received = part.stat().st_size
+                        if on_progress:
+                            on_progress(self.snapshot()["download"])
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=0.4)
+                    except asyncio.TimeoutError:
+                        continue
+                self._dl_proc = None
+                stderr = b""
+                if proc.stderr:
+                    stderr = await proc.stderr.read()
+                if self._cancel:
+                    self.download.status = "cancelled"
+                    if part.exists():
+                        part.unlink()
+                    if on_progress:
+                        on_progress(self.snapshot()["download"])
+                    return self.snapshot()
+                if proc.returncode == 0 and part.exists() and part.stat().st_size > 1_000_000:
+                    part.replace(dest)
+                    self.download.status = "done"
+                    self.download.received = dest.stat().st_size
+                    self.download.total = self.download.received
+                    if on_progress:
+                        on_progress(self.snapshot()["download"])
+                    return self.snapshot()
+                last_err = RuntimeError((stderr.decode("utf-8", "replace") or f"curl exit {proc.returncode}")[:400])
+            raise last_err or RuntimeError("download failed")
         except Exception as e:
+            friendly = self._friendly_download_error(e)
             self.download.status = "error"
-            self.download.error = str(e)
+            self.download.error = friendly
             if part.exists():
                 try:
                     part.unlink()
@@ -613,10 +647,16 @@ class LLMHub:
                     pass
             if on_progress:
                 on_progress(self.snapshot()["download"])
-            raise
+            raise RuntimeError(friendly) from e
 
     def cancel_download(self) -> None:
         self._cancel = True
+        proc = getattr(self, '_dl_proc', None)
+        if proc is not None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
 
 
 hub = LLMHub()

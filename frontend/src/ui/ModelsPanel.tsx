@@ -335,13 +335,14 @@ export function ModelsPanel({
         {tab === "local" && (
           <div className="model-list">
             <div className="vault-note">
-              You do not need a local download if you have an OpenRouter free-tier key — use the API keys tab.
+              Skip this tab if you have OpenRouter. HuggingFace often refuses TLS from this host, so Qwen GGUF
+              downloads fail — that is expected. Use <b>google/gemma-4-26b-a4b-it:free</b> on the API keys tab.
               <br />
               Vault · <span className="mono">{snap?.vault}</span>
               <br />
               {snap?.llama_cpp
-                ? "llama-cpp-python is available — downloaded Qwen can run in-process."
-                : "Weights download either way. Running them needs llama-cpp-python (or use a cloud key)."}
+                ? "llama-cpp-python is available — a downloaded GGUF can run in-process."
+                : "Even after a download, running Qwen needs llama-cpp-python. Prefer OpenRouter."}
             </div>
             {(snap?.local_models || []).map((m) => {
               const running = dl?.status === "running" && dl.model_id === m.id;

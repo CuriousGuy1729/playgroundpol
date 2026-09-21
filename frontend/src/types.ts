@@ -5,6 +5,7 @@ export interface ChatMsg {
   role: Role;
   content: string;
   ts: number;
+  streaming?: boolean;
 }
 
 export interface Geom {
