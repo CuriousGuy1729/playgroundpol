@@ -56,22 +56,13 @@ Open the Vite URL. The prompt bar is the product — type like you would to a la
 
 ## GitHub Codespaces
 
-Yes — the stack is Codespaces-ready. The browser never talks to `localhost`; it uses relative `/api` and `/ws`, and both servers bind `0.0.0.0`.
-
-**Open port `5173`.** That is the lab UI.
-
-| Port | What | Codespaces |
-|---|---|---|
-| **5173** | Vite UI (open this) | Public / Open in Browser |
-| **8765** | FastAPI + WebSocket | Keep **private** — Vite proxies `/api` and `/ws` to it |
+Yes. **One port: `5173`.** UI, API, and websocket all live there (Vite is not used in preview — it opens stray HMR ports).
 
 ```bash
 bash scripts/start.sh
 ```
 
-Then in the **Ports** tab click **5173**. If the page is blank or the socket will not connect, set 5173 visibility to **Public**.
-
-Single-port option (no Vite): `cd frontend && npm run build`, start only uvicorn, open **8765**.
+Then open **5173**. If the page is blank, set that port **Public** in the Ports tab. Ignore any random 4xxxx port — that is not the lab.
 
 ---
 
@@ -260,7 +251,7 @@ README.md
 | `PRISM_LLM_API_KEY` | empty | Optional, for compatible gateways |
 | `PRISM_MAX_ATTEMPTS` | `8` | Agent budget |
 | `PRISM_MAX_EXPERIMENT_SECONDS` | `6` | Per `run_simulation` cap |
-| `PRISM_HOST` / `PRISM_PORT` | `0.0.0.0` / `8765` | API bind |
+| `PRISM_HOST` / `PRISM_PORT` | `0.0.0.0` / `5173` | Lab bind (UI + API + WS) |
 
 ---
 

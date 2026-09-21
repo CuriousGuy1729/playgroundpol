@@ -29,7 +29,7 @@ CAMPAIGN_WALLCLOCK = float(os.getenv("PRISM_CAMPAIGN_WALLCLOCK", "240"))
 DATASETS_DIR = DATA_DIR / "datasets"
 
 HOST = os.getenv("PRISM_HOST", "0.0.0.0")
-PORT = int(os.getenv("PRISM_PORT", "8765"))
+PORT = int(os.getenv("PRISM_PORT", "5173"))
 
 for path in (DATA_DIR, PROJECTS_DIR, ASSETS_DIR, MODELS_DIR, DATASETS_DIR):
     path.mkdir(parents=True, exist_ok=True)

@@ -12,10 +12,10 @@ if [[ ! -d frontend/node_modules ]]; then
   (cd frontend && npm install)
 fi
 
-export PYTHONPATH="$ROOT"
-.venv/bin/python -m uvicorn server.app.main:app --host 0.0.0.0 --port 8765 &
-BACK=$!
-trap 'kill $BACK 2>/dev/null || true' EXIT
+if [[ ! -f frontend/dist/index.html ]]; then
+  (cd frontend && npm run build)
+fi
 
-cd frontend
-npm run dev
+export PYTHONPATH="$ROOT"
+# One process, one port. Vite is not used in preview — it opens stray HMR ports.
+exec .venv/bin/python -m uvicorn server.app.main:app --host 0.0.0.0 --port 5173
